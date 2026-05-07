@@ -26,7 +26,7 @@ Mnemo: Noted. Created: Anna (People), LegAI (Projects),
 - **Smart linker** — after each session, an LLM post-pass proposes typed relations (`for_project`, `works_at`, `about_person`, etc.)
 - **Bidirectional typed links** — adding `for_project` on a task automatically adds `tasks: [...]` on the project
 - **Maps of Content** — `_meta/MOC_People.md`, `MOC_Projects.md`, etc. auto-regenerate as navigable index pages
-- **Multimodal input** — text, voice (Whisper transcription), and images (GPT-4 Vision)
+- **Multimodal input** — text, voice (Whisper transcription), and images (GPT-5.4 Vision)
 - **Custom personality** — name your assistant and choose its communication style during onboarding
 - **Proactive reminders** — APScheduler cron tasks: morning digest, weekly reflection, stale project checks
 - **Git-backed vault** — every note commit is versioned; `/undo` reverts the last change
@@ -47,7 +47,7 @@ Telegram ──► aiogram 3 handlers
                 │         │
                 │    process_input()
                 │         │
-                │    agent/loop.py ──► OpenAI GPT-4o (function calling)
+                │    agent/loop.py ──► OpenAI GPT-5.4 (function calling)
                 │         │
                 │    tools/ ──► obsidian.* / scheduler.* / lightrag.*
                 │
@@ -203,8 +203,8 @@ All settings go in `.env`. See `.env.example` for the full list with comments.
 | `ALLOWED_USER_IDS` | ✅ | — | Comma-separated Telegram user IDs |
 | `TZ` | | `UTC` | Timezone for notes and scheduling |
 | `VAULT_GIT_REMOTE` | | — | SSH URL of your vault GitHub repo |
-| `OPENAI_MODEL_MAIN` | | `gpt-4o` | Main model (chat, extraction, linking) |
-| `OPENAI_MODEL_FAST` | | `gpt-4o-mini` | Fast model (topic shift, compact tasks) |
+| `OPENAI_MODEL_MAIN` | | `gpt-5.4` | Main model (chat, extraction, linking) |
+| `OPENAI_MODEL_FAST` | | `gpt-5.4-mini` | Fast model (topic shift, compact tasks) |
 | `SESSION_IDLE_TIMEOUT_MIN` | | `15` | Auto-save session after N minutes idle |
 | `SENTRY_DSN` | | — | Sentry error tracking (optional) |
 
