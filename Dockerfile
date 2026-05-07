@@ -8,7 +8,7 @@ RUN apt-get update && \
 
 WORKDIR /app
 
-COPY pyproject.toml uv.lock ./
+COPY pyproject.toml uv.lock README.md ./
 RUN uv sync --frozen --no-dev && \
     ls /app/.venv/bin/
 
