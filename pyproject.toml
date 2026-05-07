@@ -1,0 +1,70 @@
+[project]
+name = "mnemo"
+version = "1.0.0"
+description = "AI second brain — Telegram bot with Obsidian vault and knowledge graph"
+license = {text = "MIT"}
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [
+    {name = "Komron Khakimov", email = "komronkhakimov17@gmail.com"},
+]
+keywords = ["telegram", "obsidian", "knowledge-graph", "ai", "second-brain", "lightrag"]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Communications :: Chat",
+]
+dependencies = [
+    "aiogram>=3.13",
+    "pydantic>=2.10",
+    "pydantic-settings>=2.7",
+    "structlog>=24.4",
+    "redis[hiredis]>=5.2",
+    "openai>=1.57",
+    "orjson>=3.10",
+    "gitpython>=3.1",
+    "apscheduler>=3.10",
+    "lightrag-hku>=1.3",
+    "jinja2>=3.1",
+    "httpx>=0.28",
+    "sentry-sdk>=2.19",
+    "pyyaml>=6.0",
+    "python-slugify>=8.0",
+    "rapidfuzz>=3.10",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.8",
+    "mypy>=1.13",
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "types-pyyaml>=6.0",
+    "types-python-slugify>=8.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "UP", "I", "B", "RUF"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["src"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

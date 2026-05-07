@@ -1,0 +1,24 @@
+services:
+  bot:
+    build: .
+    env_file: .env
+    volumes:
+      - ./data/vault:/data/vault
+      - ./data/lightrag:/data/lightrag
+      - ./secrets/vault_ssh_key:/run/secrets/vault_ssh_key:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - ./data/redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
