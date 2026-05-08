@@ -40,13 +40,30 @@ _DEFAULTS: list[tuple[str, str, str, dict]] = [  # type: ignore[type-arg]
         "system",
         {"action": "full_reindex", "description": "LightRAG еженедельный full reindex"},
     ),
+    (
+        "vault_pull_sync",
+        "*/2 * * * *",  # overridden by settings.vault_pull_interval_min
+        "system",
+        {
+            "action": "vault_pull_sync",
+            "description": "Sync manual Obsidian edits to LightRAG via git pull",
+        },
+    ),
 ]
 
 
 def bootstrap_defaults() -> None:
     """Create default scheduled tasks if they don't already exist. Idempotent."""
+    from src.config import settings
+
     scheduler = get_scheduler()
     for task_id, cron, kind, payload in _DEFAULTS:
+        # vault_pull_sync is special: skip if disabled, otherwise use config interval
+        if task_id == "vault_pull_sync":
+            if settings.vault_pull_interval_min == 0:
+                continue
+            cron = f"*/{settings.vault_pull_interval_min} * * * *"
+
         if scheduler.get_job(task_id) is not None:
             continue
         parts = cron.split()

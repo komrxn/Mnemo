@@ -83,16 +83,13 @@ async def add_typed_link(
         f"link {from_path} -[{relation}]-> {to_path} [session={session_id}]",
     )
 
-    # Background re-index of both endpoints into LightRAG (custom KG, no LLM)
+    # Enqueue reindex of both endpoints (debounced — coalesces bursts of typed links)
     try:
-        import asyncio
+        from src.lightrag_svc.reindex_queue import enqueue
 
-        from src.lightrag_svc.indexer import index_files
-
-        _t = asyncio.create_task(index_files(paths_to_commit))
-        _ = _t
+        await enqueue(paths_to_commit)
     except Exception as exc:
-        logger.warning("link reindex skipped", error=str(exc))
+        logger.warning("link reindex enqueue skipped", error=str(exc))
 
     return True
 

@@ -85,6 +85,12 @@ async def main() -> None:
     finally:
         lifecycle_task.cancel()
         scheduler.shutdown(wait=False)
+        try:
+            from src.lightrag_svc.reindex_queue import flush_now
+
+            await flush_now()
+        except Exception as exc:
+            logger.warning("reindex flush on shutdown failed", error=str(exc))
         await bot.session.close()
         logger.info("stopped")
 

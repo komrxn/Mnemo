@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     sentry_dsn: str = ""
     session_idle_timeout_min: int = 15
+    # Periodic git-pull of vault to ingest manual edits made in Obsidian.
+    # 0 = disable (only push-on-write will sync).
+    vault_pull_interval_min: int = 2
 
     @field_validator("allowed_user_ids", mode="before")
     @classmethod

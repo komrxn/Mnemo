@@ -79,6 +79,73 @@ async def _handle_system_task(payload: dict) -> None:  # type: ignore[type-arg]
             logger.info("full reindex completed")
         except Exception as exc:
             logger.error("reindex failed", error=str(exc))
+        return
+
+    if action == "vault_pull_sync":
+        await _do_vault_pull_sync()
+        return
+
+
+async def _do_vault_pull_sync() -> None:
+    """Pull vault from remote and propagate diff to LightRAG graph."""
+    from pathlib import Path
+
+    from src.vault import git_ops
+
+    vault = Path(settings.vault_path)
+    try:
+        diff = await git_ops.pull_with_diff(vault)
+    except Exception as exc:
+        logger.error("vault pull failed", error=str(exc))
+        return
+
+    if diff is None:
+        # Conflict — alert user, NO auto-resolve
+        try:
+            from src.telegram.bot import get_bot
+
+            bot = get_bot()
+            user_id = settings.allowed_user_ids[0]
+            await bot.send_message(
+                user_id,
+                "⚠️ Конфликт при git pull в vault. Разруливай вручную в репо. "
+                "До разрешения синхронизация остановлена.",
+            )
+        except Exception as exc2:
+            logger.warning("conflict alert failed", error=str(exc2))
+        return
+
+    total = len(diff["added"]) + len(diff["modified"]) + len(diff["deleted"]) + len(diff["renamed"])
+    if total == 0:
+        return
+
+    logger.info(
+        "vault diff detected",
+        added=len(diff["added"]),
+        modified=len(diff["modified"]),
+        deleted=len(diff["deleted"]),
+        renamed=len(diff["renamed"]),
+    )
+
+    to_index = diff["added"] + diff["modified"]
+    if to_index:
+        from src.lightrag_svc.reindex_queue import enqueue
+
+        await enqueue(to_index)
+
+    if diff["renamed"] or diff["deleted"]:
+        from src.lightrag_svc.graph_sync import handle_delete, handle_rename
+
+        for old, new in diff["renamed"]:
+            try:
+                await handle_rename(old, new)
+            except Exception as exc:
+                logger.warning("rename sync failed", old=old, new=new, error=str(exc))
+        for path in diff["deleted"]:
+            try:
+                await handle_delete(path)
+            except Exception as exc:
+                logger.warning("delete sync failed", path=path, error=str(exc))
 
 
 def _load_recent_sessions() -> str:

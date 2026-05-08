@@ -30,6 +30,12 @@ class EntityInfo(BaseModel):
     updates: list[str] = []
     due: str = ""
     status: str = "open"
+    # typed_links: dict where each key is a frontmatter field (owner, works_at, ...)
+    # and each value is a list of vault-relative target paths (e.g. "30_Jobs/legai.md").
+    # Single-value fields (owner/works_at/for_job/for_project/about_person/parent_theme)
+    # use a list with exactly one element. List-value fields (themes, related_people)
+    # use a list with 0+ elements.
+    typed_links: dict[str, list[str]] = {}
 
 
 class ThoughtEntry(BaseModel):
@@ -86,6 +92,14 @@ _ENTITY_TO_NOTE_TYPE: dict[str, NoteType] = {
 }
 
 
+# Single-value typed-link fields go directly into frontmatter as a wikilink string.
+_SINGLE_VALUE_LINKS = frozenset(
+    {"owner", "works_at", "for_job", "for_project", "about_person", "parent_theme"}
+)
+# List-value typed-link fields go via add_typed_link (which generates inverse edges).
+_LIST_VALUE_LINKS = frozenset({"themes", "related_people"})
+
+
 async def _apply_entity(entity: EntityInfo, session_id: str) -> str:
     note_type: NoteType = _ENTITY_TO_NOTE_TYPE.get(entity.type, "inbox")  # type: ignore[assignment]
     rel_path = make_note_path(note_type, entity.name)
@@ -104,12 +118,47 @@ async def _apply_entity(entity: EntityInfo, session_id: str) -> str:
         if entity.due:
             fm["due"] = entity.due
 
+    # Single-value typed links go into fm BEFORE write — they're authoritative
+    # (no inverse, no need for add_typed_link's two-sided logic).
+    list_links_to_add: list[tuple[str, str]] = []
+    for field, targets in entity.typed_links.items():
+        if not targets:
+            continue
+        if field in _SINGLE_VALUE_LINKS:
+            fm[field] = f"[[{targets[0].removesuffix('.md')}]]"
+        elif field in _LIST_VALUE_LINKS:
+            for tgt in targets:
+                list_links_to_add.append((field, tgt))
+        else:
+            logger.warning(
+                "unknown typed_link field skipped",
+                entity=rel_path,
+                field=field,
+            )
+
+    # Write or update note
     if reader.note_exists(rel_path):
         if body:
             await writer.append_to_note(rel_path, body, session_id)
         await writer.update_frontmatter(rel_path, fm, session_id)
     else:
         await writer.write_note(rel_path, body or entity.name, fm, session_id)
+
+    # List-value links go via add_typed_link (creates inverse + commits + reindexes)
+    if list_links_to_add:
+        from src.vault.linking import add_typed_link
+
+        for field, target_path in list_links_to_add:
+            try:
+                await add_typed_link(rel_path, target_path, field, session_id)
+            except Exception as exc:
+                logger.warning(
+                    "list typed_link failed",
+                    from_=rel_path,
+                    to=target_path,
+                    relation=field,
+                    error=str(exc),
+                )
 
     return rel_path
 
@@ -243,9 +292,9 @@ async def apply_to_vault(extraction: SessionExtraction, session_id: str) -> list
 
 async def _index_created(paths: list[str]) -> None:
     try:
-        from src.lightrag_svc.indexer import index_files
+        from src.lightrag_svc.reindex_queue import enqueue
 
-        await index_files(paths)
+        await enqueue(paths)
     except Exception as exc:
         logger.warning("lightrag index skipped", error=str(exc))
 

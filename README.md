@@ -370,15 +370,13 @@ curl http://localhost:9621/health
 
 ### Step 2. Install the MCP bridge (on your local machine, not in Docker)
 
-The bridge ([`desimpkins/daniel-lightrag-mcp`](https://github.com/desimpkins/daniel-lightrag-mcp)) isn't on PyPI — install from source:
-
 ```bash
-git clone https://github.com/desimpkins/daniel-lightrag-mcp.git
-cd daniel-lightrag-mcp
-pip install -e .
+pip install mnemo-mcp
 ```
 
-After install the `daniel-lightrag-mcp` command is on your `PATH`.
+`mnemo-mcp` is our friendly fork of [`desimpkins/daniel-lightrag-mcp`](https://github.com/desimpkins/daniel-lightrag-mcp) — the protocol logic is identical, the package is renamed for a clean PyPI install.
+
+After install the `mnemo-mcp` command is on your `PATH`.
 
 ### Step 3. Configure your tool
 
@@ -390,7 +388,7 @@ Edit `~/.claude/claude_mcp_config.json` (or run `claude mcp add`):
 {
   "mcpServers": {
     "mnemo-brain": {
-      "command": "daniel-lightrag-mcp",
+      "command": "mnemo-mcp",
       "env": {
         "LIGHTRAG_BASE_URL": "http://localhost:9621",
         "LIGHTRAG_API_KEY": "<paste contents of secrets/lightrag_api_key.txt>"
@@ -426,13 +424,13 @@ The bridge exposes **20 tools** over MCP. The most useful ones for read-only gra
 
 ### 🛡️ Security note
 
-`daniel-lightrag-mcp` exposes **20 tools — including write tools** (`insert_text`, `update_entity`, `delete_document`, …). Granting your coding tool access to this MCP server grants it write access to the graph.
+`mnemo-mcp` exposes **22 tools — including write tools** (`insert_text`, `update_entity`, `delete_document`, …). Granting your coding tool access to this MCP server grants it write access to the LightRAG graph.
 
 If you want strict read-only behavior, pick one:
 
 - **Trust your coding tool** — for personal use this is usually fine.
 - **Reverse proxy** — put a tiny proxy in front of `9621` that whitelists only `GET /graphs/*`, `POST /query`, `GET /health`.
-- **Fork the bridge** — strip the write tools from `desimpkins/daniel-lightrag-mcp`.
+- **Fork further** — strip the write tools from `mnemo-mcp` (it's MIT and renamed already).
 
 > ⚠️ **Important:** Mnemo's bot is the **only canonical writer to the vault**. Anything an MCP client `insert_text`'s into the graph lives **only in the LightRAG index**, not in your Obsidian Markdown. To write to the vault, message the bot.
 

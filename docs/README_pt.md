@@ -114,8 +114,7 @@ Mnemo expõe seu grafo de conhecimento como servidor MCP, permitindo que **Claud
 O pacote ainda não está no PyPI — instale pelo código fonte:
 
 ```bash
-git clone https://github.com/desimpkins/daniel-lightrag-mcp.git
-cd daniel-lightrag-mcp && pip install -e .
+pip install mnemo-mcp
 ```
 
 Adicione ao `~/.claude/claude_mcp_config.json` no Claude Code:
@@ -124,7 +123,7 @@ Adicione ao `~/.claude/claude_mcp_config.json` no Claude Code:
 {
   "mcpServers": {
     "mnemo-brain": {
-      "command": "daniel-lightrag-mcp",
+      "command": "mnemo-mcp",
       "env": {
         "LIGHTRAG_BASE_URL": "http://localhost:9621",
         "LIGHTRAG_API_KEY": "<conteúdo de secrets/lightrag_api_key.txt>"

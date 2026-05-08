@@ -16,12 +16,8 @@
 
 ## MCP client
 
-- [ ] Install from source succeeds:
-  ```bash
-  git clone https://github.com/desimpkins/daniel-lightrag-mcp.git
-  cd daniel-lightrag-mcp && pip install -e .
-  ```
-- [ ] `daniel-lightrag-mcp --help` runs without errors
+- [ ] `pip install mnemo-mcp` succeeds in a clean venv
+- [ ] `mnemo-mcp --help` runs without errors
 - [ ] Claude Code config added to `~/.claude/claude_mcp_config.json` with `LIGHTRAG_BASE_URL` → restart → MCP shows green status
 - [ ] In Claude Code: ask *"what is in my brain about \<topic you mentioned to bot\>"* → response references actual entities from graph
 
@@ -78,8 +74,8 @@ Run through this BEFORE declaring Phase F + G done.
 
 ### MCP install
 
-- [ ] `git clone https://github.com/desimpkins/daniel-lightrag-mcp.git && cd daniel-lightrag-mcp && pip install -e .` проходит
-- [ ] `daniel-lightrag-mcp --help` запускается
+- [ ] `pip install mnemo-mcp` в чистом venv проходит
+- [ ] `mnemo-mcp --help` запускается
 
 ### MCP query
 
@@ -92,4 +88,5 @@ Run through this BEFORE declaring Phase F + G done.
 
 ### Docs honesty
 
-- [ ] Поиск по README + docs/ слов `LIGHTRAG_API_URL`, `pip install daniel-lightrag-mcp`, `/graphs/labels` — везде пусто
+- [ ] `grep -rE "LIGHTRAG_API_URL|/graphs/labels" README.md docs/ --exclude=MCP_TESTING.md` → пусто
+- [ ] `grep -rE "git clone .*daniel-lightrag-mcp|pip install daniel-lightrag-mcp" README.md docs/ --exclude=MCP_TESTING.md` → пусто

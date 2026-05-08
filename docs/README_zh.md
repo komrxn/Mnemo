@@ -114,8 +114,7 @@ Mnemo 将知识图谱作为 MCP 服务器暴露，让 **Claude Code、Cursor、C
 该包尚未发布到 PyPI，请从源码安装：
 
 ```bash
-git clone https://github.com/desimpkins/daniel-lightrag-mcp.git
-cd daniel-lightrag-mcp && pip install -e .
+pip install mnemo-mcp
 ```
 
 在 Claude Code 的 `~/.claude/claude_mcp_config.json` 中添加：
@@ -124,7 +123,7 @@ cd daniel-lightrag-mcp && pip install -e .
 {
   "mcpServers": {
     "mnemo-brain": {
-      "command": "daniel-lightrag-mcp",
+      "command": "mnemo-mcp",
       "env": {
         "LIGHTRAG_BASE_URL": "http://localhost:9621",
         "LIGHTRAG_API_KEY": "<secrets/lightrag_api_key.txt 的内容>"

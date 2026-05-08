@@ -3,10 +3,19 @@ from __future__ import annotations
 import asyncio
 import os
 from pathlib import Path
+from typing import TypedDict
 
 import structlog
 
 logger = structlog.get_logger()
+
+
+class VaultDiff(TypedDict):
+    added: list[str]
+    modified: list[str]
+    deleted: list[str]
+    renamed: list[tuple[str, str]]
+
 
 _FORBIDDEN: frozenset[str] = frozenset({"--force", "-f", "--no-verify", "--mirror", "--hard"})
 
@@ -133,3 +142,64 @@ async def pull_rebase(vault_path: Path) -> bool:
     except RuntimeError as exc:
         logger.warning("git conflict detected", error=str(exc))
         return False
+
+
+async def pull_with_diff(vault_path: Path) -> VaultDiff | None:
+    """Pull from remote, return classified diff of .md files.
+
+    Returns:
+        - VaultDiff with classified changes (possibly all empty if no remote changes)
+        - None if a merge/rebase conflict occurred — caller should alert user, NOT auto-resolve
+
+    Uses HEAD-before vs HEAD-after diff with rename detection (-M70).
+    """
+    from src.config import settings
+
+    if not settings.vault_git_remote:
+        return VaultDiff(added=[], modified=[], deleted=[], renamed=[])
+
+    # Capture HEAD before pull (might not exist on a fresh repo)
+    try:
+        before = await _run(vault_path, "rev-parse", "HEAD")
+    except RuntimeError:
+        before = ""
+
+    # Pull with rebase
+    try:
+        await _run(vault_path, "pull", "--rebase", use_ssh=True)
+    except RuntimeError as exc:
+        msg = str(exc)
+        if "conflict" in msg.lower() or "could not apply" in msg.lower():
+            logger.warning("vault pull conflict", error=msg)
+            try:
+                await _run(vault_path, "rebase", "--abort")
+            except RuntimeError:
+                pass
+            return None
+        # Other errors (network/auth) — propagate
+        raise
+
+    after = await _run(vault_path, "rev-parse", "HEAD")
+    if before == after:
+        return VaultDiff(added=[], modified=[], deleted=[], renamed=[])
+
+    # Compute diff with rename detection (-M70 = 70% similarity threshold)
+    diff_raw = await _run(vault_path, "diff", "--name-status", "-M70", before, after)
+
+    diff: VaultDiff = VaultDiff(added=[], modified=[], deleted=[], renamed=[])
+    for line in diff_raw.splitlines():
+        if not line.strip():
+            continue
+        parts = line.split("\t")
+        status = parts[0]
+        if status.startswith("A") and len(parts) >= 2 and parts[1].endswith(".md"):
+            diff["added"].append(parts[1])
+        elif status.startswith("M") and len(parts) >= 2 and parts[1].endswith(".md"):
+            diff["modified"].append(parts[1])
+        elif status.startswith("D") and len(parts) >= 2 and parts[1].endswith(".md"):
+            diff["deleted"].append(parts[1])
+        elif status.startswith("R") and len(parts) >= 3:
+            old_path, new_path = parts[1], parts[2]
+            if old_path.endswith(".md") and new_path.endswith(".md"):
+                diff["renamed"].append((old_path, new_path))
+    return diff

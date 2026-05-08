@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Any, Literal
 
 import orjson
 import structlog
@@ -13,6 +13,7 @@ from aiogram.utils.chat_action import ChatActionSender
 
 from src.agent import loop as agent_loop
 from src.agent import prompts
+from src.config import settings
 from src.session import manager as session_mgr
 from src.tools.registry import get_registry
 
@@ -66,7 +67,6 @@ async def _run_onboarding_plan(portrait: str, profile: dict[str, object]) -> str
         },
     ]
     client = agent_loop.get_client()
-    from src.config import settings
 
     response = await client.chat.completions.create(
         model=settings.openai_model_main,
@@ -82,7 +82,6 @@ async def _create_owner_note(
     """Create _meta/owner.md — the owner anchor node."""
     owner_name = str(profile.get("owner_name", "Владелец"))
     client = agent_loop.get_client()
-    from src.config import settings
 
     # LLM extracts key facts + aliases from portrait
     resp = await client.chat.completions.create(
@@ -139,46 +138,31 @@ async def _create_owner_note(
     )
 
 
-async def _run_onboarding_execute(
-    portrait: str,
-    profile: dict[str, object],
-    reply_fn: Callable[[str], Awaitable[None]],
-) -> None:
-    """Execute the onboarding: call agent with tools to create all notes."""
-    bot_name = str(profile.get("bot_name", "Ассистент"))
-    personality = str(profile.get("personality", ""))
-    system = prompts.render("onboarding", bot_name=bot_name, personality=personality)
-    messages = [
-        {"role": "system", "content": system},
-        {
-            "role": "user",
-            "content": (
-                f"Текст портрета:\n\n{portrait}\n\n"
-                "Пользователь подтвердил. Создай все заметки через инструменты obsidian.*. "
-                "В конце создай _meta/portrait.md с исходным текстом."
-            ),
-        },
-    ]
+_ONBOARDING_DONE_SENTINEL = "[ONBOARDING_DONE]"
+_ONBOARDING_MAX_TURNS = 5
+
+
+async def _run_onboarding_turn(
+    messages: list[dict[str, Any]],
+) -> tuple[str, bool]:
+    """Run one turn of the onboarding agent loop.
+
+    Returns (assistant_text, is_done). is_done is True when the agent emitted
+    the [ONBOARDING_DONE] sentinel — meaning the initial graph is built.
+    """
     registry = get_registry()
 
     async def dispatch(name: str, args: dict) -> str:  # type: ignore[type-arg]
         return await registry.call(name, args)
 
     result = await agent_loop.run_chat(messages, registry.openai_specs(), dispatch, max_rounds=30)
-    await reply_fn(result)
+    is_done = _ONBOARDING_DONE_SENTINEL in result
+    text = result.replace(_ONBOARDING_DONE_SENTINEL, "").strip()
+    return text, is_done
 
-    from src.vault import writer as vault_writer
 
-    try:
-        await vault_writer.write_note("_meta/portrait.md", portrait, {"type": "inbox"})
-    except Exception as exc:
-        logger.warning("portrait save failed", error=str(exc))
-
-    try:
-        await _create_owner_note(portrait, profile)
-    except Exception as exc:
-        logger.warning("owner note creation failed", error=str(exc))
-
+async def _finalize_onboarding() -> None:
+    """Bootstrap default scheduled tasks (called once after [ONBOARDING_DONE])."""
     try:
         from src.scheduler.defaults import bootstrap_defaults
 
@@ -186,6 +170,83 @@ async def _run_onboarding_execute(
         logger.info("default tasks bootstrapped after onboarding")
     except Exception as exc:
         logger.warning("default tasks bootstrap failed", error=str(exc))
+
+
+async def _run_onboarding_execute(
+    portrait: str,
+    profile: dict[str, object],
+    reply_fn: Callable[[str], Awaitable[None]],
+) -> None:
+    """Kick off multi-turn onboarding: owner+portrait first, then agent builds tree.
+
+    The agent may return mid-flight asking the owner a clarifying question
+    (just plain text, no tool call). When that happens, we save state in Redis
+    and the next user message resumes via _handle_onboarding(state="agent_question").
+    """
+    user_id = int(str(profile.get("user_id", settings.allowed_user_ids[0])))
+
+    # Step 1: write owner.md FIRST so agent can anchor its tree to it
+    try:
+        await _create_owner_note(portrait, profile)
+    except Exception as exc:
+        logger.warning("owner note creation failed", error=str(exc))
+
+    # Step 2: archive raw portrait
+    from src.vault import writer as vault_writer
+
+    try:
+        await vault_writer.write_note("_meta/portrait.md", portrait, {"type": "inbox"})
+    except Exception as exc:
+        logger.warning("portrait save failed", error=str(exc))
+
+    # Step 3: build initial agent prompt
+    bot_name = str(profile.get("bot_name", "Ассистент"))
+    personality = str(profile.get("personality", ""))
+    owner_name = str(profile.get("owner_name", "Владелец"))
+    system = prompts.render(
+        "onboarding",
+        bot_name=bot_name,
+        personality=personality,
+        owner_name=owner_name,
+        owner_path="_meta/owner.md",
+    )
+    messages: list[dict[str, Any]] = [
+        {"role": "system", "content": system},
+        {
+            "role": "user",
+            "content": (
+                f"Текст портрета:\n\n{portrait}\n\n"
+                "Построй начальное древо знаний согласно инструкциям в системном промпте. "
+                "Если что-то неясно или двусмысленно — спроси меня прямо текстом без tool-call. "
+                "Когда закончишь — финальное сообщение должно содержать "
+                f"{_ONBOARDING_DONE_SENTINEL}."
+            ),
+        },
+    ]
+
+    text, is_done = await _run_onboarding_turn(messages)
+    await reply_fn(text)
+
+    if is_done:
+        await _finalize_onboarding()
+        return
+
+    # Agent has a clarifying question — save state for follow-up turns
+    redis = await session_mgr.get_redis()
+    key = session_mgr.key_onboarding(user_id)
+    messages.append({"role": "assistant", "content": text})
+    await redis.set(
+        key,
+        orjson.dumps(
+            {
+                "state": "agent_question",
+                "messages": messages,
+                "portrait": portrait,
+                "turn_count": 1,
+            }
+        ),
+        ex=86400,
+    )
 
 
 async def _handle_onboarding(
@@ -265,6 +326,45 @@ async def _handle_onboarding(
         else:
             await redis.delete(key)
             await reply_fn("онбординг отменён. Когда будешь готов, напиши /start.")
+        return True
+
+    if step == "agent_question":
+        # Owner is answering the agent's clarifying question — resume the loop
+        saved_messages: list[dict[str, Any]] = state.get("messages", [])
+        portrait = state.get("portrait", "")
+        turn_count = int(state.get("turn_count", 0))
+
+        saved_messages.append({"role": "user", "content": content})
+
+        text, is_done = await _run_onboarding_turn(saved_messages)
+        await reply_fn(text)
+
+        if is_done:
+            await redis.delete(key)
+            await _finalize_onboarding()
+            return True
+
+        if turn_count + 1 >= _ONBOARDING_MAX_TURNS:
+            # Agent still has questions but we hit the limit — finalize forcibly
+            logger.warning("onboarding hit max turns, ending forcibly", user_id=user_id)
+            await redis.delete(key)
+            await reply_fn("Заверши то что начал — детали можем уточнить позже в обычном диалоге.")
+            await _finalize_onboarding()
+            return True
+
+        saved_messages.append({"role": "assistant", "content": text})
+        await redis.set(
+            key,
+            orjson.dumps(
+                {
+                    "state": "agent_question",
+                    "messages": saved_messages,
+                    "portrait": portrait,
+                    "turn_count": turn_count + 1,
+                }
+            ),
+            ex=86400,
+        )
         return True
 
     return False
