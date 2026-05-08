@@ -92,12 +92,23 @@ _ENTITY_TO_NOTE_TYPE: dict[str, NoteType] = {
 }
 
 
-# Single-value typed-link fields go directly into frontmatter as a wikilink string.
-_SINGLE_VALUE_LINKS = frozenset(
-    {"owner", "works_at", "for_job", "for_project", "about_person", "parent_theme"}
+# All known typed-link fields. Anything else gets a warning.
+_ALL_TYPED_LINKS = frozenset(
+    {
+        "owner",
+        "works_at",
+        "for_job",
+        "for_project",
+        "about_person",
+        "parent_theme",
+        "themes",
+        "related_people",
+    }
 )
-# List-value typed-link fields go via add_typed_link (which generates inverse edges).
-_LIST_VALUE_LINKS = frozenset({"themes", "related_people"})
+# `owner` is the only forward field with NO inverse (intentional — see Phase C):
+# inverting it would flood _meta/owner.md with thousands of backlinks. So owner
+# goes straight into frontmatter without going through add_typed_link.
+_OWNER_FIELD = "owner"
 
 
 async def _apply_entity(entity: EntityInfo, session_id: str) -> str:
@@ -118,25 +129,25 @@ async def _apply_entity(entity: EntityInfo, session_id: str) -> str:
         if entity.due:
             fm["due"] = entity.due
 
-    # Single-value typed links go into fm BEFORE write — they're authoritative
-    # (no inverse, no need for add_typed_link's two-sided logic).
-    list_links_to_add: list[tuple[str, str]] = []
-    for field, targets in entity.typed_links.items():
-        if not targets:
-            continue
-        if field in _SINGLE_VALUE_LINKS:
-            fm[field] = f"[[{targets[0].removesuffix('.md')}]]"
-        elif field in _LIST_VALUE_LINKS:
-            for tgt in targets:
-                list_links_to_add.append((field, tgt))
-        else:
-            logger.warning(
-                "unknown typed_link field skipped",
-                entity=rel_path,
-                field=field,
-            )
+    # owner — write straight to frontmatter (no inverse needed)
+    owner_targets = entity.typed_links.get(_OWNER_FIELD, [])
+    if owner_targets:
+        fm[_OWNER_FIELD] = f"[[{owner_targets[0].removesuffix('.md')}]]"
 
-    # Write or update note
+    # Collect all OTHER typed links (these need add_typed_link for inverse generation)
+    typed_links_to_add: list[tuple[str, str]] = []
+    for field, targets in entity.typed_links.items():
+        if field == _OWNER_FIELD:
+            continue
+        if field not in _ALL_TYPED_LINKS:
+            logger.warning(
+                "unknown typed_link field skipped", entity=rel_path, field=field
+            )
+            continue
+        for tgt in targets:
+            typed_links_to_add.append((field, tgt))
+
+    # Write or update the note (owner already in fm, other links added below)
     if reader.note_exists(rel_path):
         if body:
             await writer.append_to_note(rel_path, body, session_id)
@@ -144,16 +155,17 @@ async def _apply_entity(entity: EntityInfo, session_id: str) -> str:
     else:
         await writer.write_note(rel_path, body or entity.name, fm, session_id)
 
-    # List-value links go via add_typed_link (creates inverse + commits + reindexes)
-    if list_links_to_add:
+    # All non-owner typed links go via add_typed_link
+    # (creates inverse on target + single git commit per pair + reindex queue)
+    if typed_links_to_add:
         from src.vault.linking import add_typed_link
 
-        for field, target_path in list_links_to_add:
+        for field, target_path in typed_links_to_add:
             try:
                 await add_typed_link(rel_path, target_path, field, session_id)
             except Exception as exc:
                 logger.warning(
-                    "list typed_link failed",
+                    "typed_link failed",
                     from_=rel_path,
                     to=target_path,
                     relation=field,
