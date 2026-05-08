@@ -44,7 +44,7 @@
 | Slugify транслитерирует кириллицу: `аня-петрова.md` → `anya-petrova.md`. Юзеру в Obsidian нечитаемо | `src/vault/frontmatter.py::make_note_path` | Phase L1 (`allow_unicode=True`) |
 | Ручные правки в Obsidian (через Obsidian Git plugin) не синхронизируются с LightRAG до weekly reindex | нигде нет sync-механизма | Phase I (vault pull-and-sync) |
 | 10 параллельных reindex'ов после batch `add_typed_link` → race на graphml | `src/vault/linking.py` | Phase J (debounce queue) |
-| MCP-мост ставится из `git clone` (не PyPI) — пользователю неудобно, апдейты вручную | `README.md` + 4 перевода | Phase K (форк → mnemo-mcp на PyPI) |
+| MCP-мост ставится из `git clone` (не PyPI) — пользователю неудобно, апдейты вручную | `README.md` + 4 перевода | Phase K (форк → mnemo-brain-mcp на PyPI) |
 | Старые тестовые vault-файлы (anna, legai, mnemo, ai) от v1 болтаются в репо | `data/vault/{20_People,30_Jobs,40_Projects,80_Themes}/*.md` | удалить (см. §10) |
 
 ---
@@ -55,7 +55,7 @@
 2. **Onboarding строит каркас за разговор.** Агент задаёт уточняющие вопросы пока не разберётся как правильно якорить новые сущности. Никаких молчаливых угадываний.
 3. **Древо вокруг owner.** В центре графа — `_meta/owner.md`. Все сущности кроме `person`/`inbox`/`daily`/`attachment` имеют прямой `owner: [[_meta/owner]]`. Любой узел графа достижим от owner за 1-3 хопа по типизированным рёбрам.
 4. **Двусторонняя синхронизация.** Бот пишет в vault → LightRAG. Юзер правит руками в Obsidian → периодический git pull → LightRAG обновляется. Один источник правды — markdown-файлы.
-5. **Идиоматичная установка.** Разработчик ставит MCP-мост через `pip install mnemo-mcp` (наш форк на PyPI). Никаких git clone в инструкции.
+5. **Идиоматичная установка.** Разработчик ставит MCP-мост через `pip install mnemo-brain-mcp` (наш форк на PyPI). Никаких git clone в инструкции.
 
 ---
 
@@ -171,7 +171,7 @@ _meta/
 | **H1**: description сущности — все факты или 400 char? | 400 char первых bullet'ов. «Логи никто не смотрит, делай как удобно системе» | Текущая реализация в [src/lightrag_svc/converter.py](src/lightrag_svc/converter.py) уже такая. Не трогаем. |
 | **H4**: дебаунсить параллельные reindex после `add_typed_link`? | Да, очередь с TTL=2 сек | **Phase J** |
 | **q3** (новая идея): ручные правки в Obsidian → LightRAG? | Да, периодический `git pull` + diff | **Phase I** |
-| **G2**: форкнуть `daniel-lightrag-mcp` как `mnemo-mcp` на PyPI? | Да, скопировать как есть, лёгкий ребрендинг (имя пакета, README), логику не трогать | **Phase K** |
+| **G2**: форкнуть `daniel-lightrag-mcp` как `mnemo-brain-mcp` на PyPI? | Да, скопировать как есть, лёгкий ребрендинг (имя пакета, README), логику не трогать | **Phase K** |
 | Slugify Unicode? | Да, `allow_unicode=True` | **Phase L1** |
 | Owner для job/project/task/thought/memory/theme? | Да, для всех. Person — нет. | Реализуется в промптах **Phase L** |
 | Семантика > правила | Промпты переписать на смысл с примерами | **Phase L** |
@@ -1074,11 +1074,11 @@ async def test_vault_pull_sync_handles_conflict() -> None:
 
 ---
 
-## 9. ФАЗА K — mnemo-mcp fork + PyPI publish
+## 9. ФАЗА K — mnemo-brain-mcp fork + PyPI publish
 
-> **Цель:** заменить `git clone https://github.com/desimpkins/daniel-lightrag-mcp.git && pip install -e .` на простое `pip install mnemo-mcp`. Это форк апстрима с минимальным ребрендингом — логика та же.
+> **Цель:** заменить `git clone https://github.com/desimpkins/daniel-lightrag-mcp.git && pip install -e .` на простое `pip install mnemo-brain-mcp`. Это форк апстрима с минимальным ребрендингом — логика та же.
 >
-> **Делается в отдельной директории** (`~/Projects/mnemo-mcp/`), НЕ в этом репо. PyPI publish — владелец сам, по инструкции K3.
+> **Делается в отдельной директории** (`~/Projects/mnemo-brain-mcp/`), НЕ в этом репо. PyPI publish — владелец сам, по инструкции K3.
 
 ### K1. Локальный fork
 
@@ -1087,8 +1087,8 @@ async def test_vault_pull_sync_handles_conflict() -> None:
 ```bash
 # 1. Клонируем апстрим в отдельную директорию вне Mnemo
 cd ~/Projects
-git clone https://github.com/desimpkins/daniel-lightrag-mcp.git mnemo-mcp
-cd mnemo-mcp
+git clone https://github.com/desimpkins/daniel-lightrag-mcp.git mnemo-brain-mcp
+cd mnemo-brain-mcp
 
 # 2. Удаляем git-связь с апстримом, начинаем свою историю
 rm -rf .git
@@ -1097,19 +1097,19 @@ git add -A
 git commit -m "Initial commit (fork of desimpkins/daniel-lightrag-mcp)"
 
 # 3. (Опционально) создать свой репо на GitHub и запушить
-# gh repo create mnemo-mcp --public --source=. --push
+# gh repo create mnemo-brain-mcp --public --source=. --push
 ```
 
 ### K2. Глобальный rename
 
-В клонированной папке `~/Projects/mnemo-mcp/`:
+В клонированной папке `~/Projects/mnemo-brain-mcp/`:
 
 **Список замен (применить через find+sed или вручную):**
 
 | Что | Где | На что |
 |---|---|---|
-| `daniel_lightrag_mcp` (snake_case) | директория модуля + все импорты | `mnemo_mcp` |
-| `daniel-lightrag-mcp` (kebab-case) | `pyproject.toml` `name=`, entry point | `mnemo-mcp` |
+| `daniel_lightrag_mcp` (snake_case) | директория модуля + все импорты | `mnemo_brain_mcp` |
+| `daniel-lightrag-mcp` (kebab-case) | `pyproject.toml` `name=`, entry point | `mnemo-brain-mcp` |
 | `Daniel Simpkins` (или его имя) в `pyproject.toml` `authors` | `pyproject.toml` | имя владельца + email |
 | Описание пакета (`description=...`) | `pyproject.toml` | "Mnemo Brain MCP — query your Mnemo second brain from Claude Code, Cursor, Cline, and other MCP-compatible tools" |
 | Версия | `pyproject.toml` | `0.1.0` (или совпадающая с апстримом) |
@@ -1117,13 +1117,13 @@ git commit -m "Initial commit (fork of desimpkins/daniel-lightrag-mcp)"
 **Команды (примерные, проверь на месте):**
 
 ```bash
-cd ~/Projects/mnemo-mcp
+cd ~/Projects/mnemo-brain-mcp
 
 # Переименовать директорию пакета
-mv daniel_lightrag_mcp mnemo_mcp
+mv daniel_lightrag_mcp mnemo_brain_mcp
 
 # Заменить во всех python-файлах импорты
-find . -name "*.py" -type f -exec sed -i '' 's/daniel_lightrag_mcp/mnemo_mcp/g' {} +
+find . -name "*.py" -type f -exec sed -i '' 's/daniel_lightrag_mcp/mnemo_brain_mcp/g' {} +
 
 # В pyproject.toml — открыть и поправить вручную (name, description, authors, scripts)
 # Аналогично — README.md в форке (см. K3)
@@ -1135,10 +1135,10 @@ find . -name "*.py" -type f -exec sed -i '' 's/daniel_lightrag_mcp/mnemo_mcp/g' 
 
 ### K3. README + LICENSE в форке
 
-**Создать `~/Projects/mnemo-mcp/README.md`:**
+**Создать `~/Projects/mnemo-brain-mcp/README.md`:**
 
 ```markdown
-# mnemo-mcp
+# mnemo-brain-mcp
 
 MCP (Model Context Protocol) bridge to query your [Mnemo](https://github.com/komrxn/Khusayinbek_brain) second brain from Claude Code, Cursor, Cline, Windsurf, and any MCP-compatible AI tool.
 
@@ -1151,7 +1151,7 @@ If you're using LightRAG-server standalone (not Mnemo), use the upstream package
 ## Install
 
 \`\`\`bash
-pip install mnemo-mcp
+pip install mnemo-brain-mcp
 \`\`\`
 
 ## Configure (Claude Code example)
@@ -1162,7 +1162,7 @@ In `~/.claude/claude_mcp_config.json`:
 {
   "mcpServers": {
     "mnemo-brain": {
-      "command": "mnemo-mcp",
+      "command": "mnemo-brain-mcp",
       "env": {
         "LIGHTRAG_BASE_URL": "http://localhost:9621",
         "LIGHTRAG_API_KEY": "<paste secrets/lightrag_api_key.txt>"
@@ -1198,8 +1198,8 @@ MIT (inherited from upstream).
    - Сохранить recovery codes в надёжном месте
 5. Создать API token:
    - Settings → API tokens → "Add API token"
-   - Token name: `mnemo-mcp-publish`
-   - Scope: «Entire account» (на первый publish; **после** успешной публикации создать второй token со scope «Project: mnemo-mcp» и удалить первый)
+   - Token name: `mnemo-brain-mcp-publish`
+   - Scope: «Entire account» (на первый publish; **после** успешной публикации создать второй token со scope «Project: mnemo-brain-mcp» и удалить первый)
    - Token виден ОДИН раз — скопировать в безопасное место (1Password / `~/.pypirc`)
 
 **Сохранить token в `~/.pypirc`** (опционально, для удобства):
@@ -1216,7 +1216,7 @@ password = pypi-AgENdGVzdC5weXBpLm9yZ...    ; вставить твой token
 
 ### K5. Build + upload (для владельца)
 
-В директории `~/Projects/mnemo-mcp/`:
+В директории `~/Projects/mnemo-brain-mcp/`:
 
 ```bash
 # Установить инструменты publish
@@ -1236,13 +1236,13 @@ python -m twine upload dist/*
 #   password: <вставить твой PyPI API token>
 ```
 
-**Через ~30 секунд** пакет доступен через `pip install mnemo-mcp`. Проверить на чистом venv:
+**Через ~30 секунд** пакет доступен через `pip install mnemo-brain-mcp`. Проверить на чистом venv:
 
 ```bash
-python -m venv /tmp/test-mnemo-mcp
-source /tmp/test-mnemo-mcp/bin/activate
-pip install mnemo-mcp
-mnemo-mcp --help    # должно работать
+python -m venv /tmp/test-mnemo-brain-mcp
+source /tmp/test-mnemo-brain-mcp/bin/activate
+pip install mnemo-brain-mcp
+mnemo-brain-mcp --help    # должно работать
 deactivate
 ```
 
@@ -1253,7 +1253,7 @@ deactivate
 
 ### K6. Обновить документацию в Mnemo-репо
 
-После того как `mnemo-mcp` есть на PyPI — обновить:
+После того как `mnemo-brain-mcp` есть на PyPI — обновить:
 
 **Файлы:**
 - `README.md`
@@ -1275,14 +1275,14 @@ deactivate
    - ```
    + Install from PyPI:
    + ```bash
-   + pip install mnemo-mcp
+   + pip install mnemo-brain-mcp
    + ```
    ```
 
 2. JSON-конфиг для Claude Code:
    ```diff
    - "command": "daniel-lightrag-mcp",
-   + "command": "mnemo-mcp",
+   + "command": "mnemo-brain-mcp",
    ```
 
 3. Таблица «20 tools» — оставить как есть (логика та же).
@@ -1295,8 +1295,8 @@ deactivate
    -   cd daniel-lightrag-mcp && pip install -e .
    -   ```
    - - [ ] `daniel-lightrag-mcp --help` runs without errors
-   + - [ ] `pip install mnemo-mcp` succeeds in a clean venv
-   + - [ ] `mnemo-mcp --help` runs without errors
+   + - [ ] `pip install mnemo-brain-mcp` succeeds in a clean venv
+   + - [ ] `mnemo-brain-mcp --help` runs without errors
    ```
 
 5. Self-referencing G9 чек (см. v2 §G9 baseline проблему):
@@ -1312,7 +1312,7 @@ deactivate
 - [ ] K2: rename выполнен, `pyproject.toml` отражает новое имя/автора/описание
 - [ ] K3: README в форке — короткий, ссылается на апстрим, MIT license сохранён
 - [ ] K4: PyPI account создан, 2FA включена, API token создан
-- [ ] K5: `python -m build && twine upload` прошёл, `pip install mnemo-mcp` работает в чистом venv
+- [ ] K5: `python -m build && twine upload` прошёл, `pip install mnemo-brain-mcp` работает в чистом venv
 - [ ] K6: 5 README + MCP_TESTING.md обновлены, `grep` ищущий старые упоминания возвращает пусто
 
 ---
@@ -1395,7 +1395,7 @@ uv run pytest -q tests/
   - `kg_query` про mnemo-v2 возвращает свежие данные
 
 ### 11.7. Smoke test: ручной MCP query
-- В Claude Code добавить mnemo-mcp config (см. §K6)
+- В Claude Code добавить mnemo-brain-mcp config (см. §K6)
 - В Claude Code: «Что моя память знает про мой проект Mnemo?»
 - Проверить что ответ ссылается на entity из графа (mnemo, legai, анна)
 
@@ -1419,8 +1419,8 @@ uv run pytest -q tests/
 - (1 час) Smoke test онбординг + sync на чистом vault'е
 - (15 мин) Финальный прогон pytest+ruff+mypy
 
-### День 3 (~3 часа): mnemo-mcp + публикация + финальный smoke
-- (30 мин) **K1+K2** — fork + rename в `~/Projects/mnemo-mcp/`
+### День 3 (~3 часа): mnemo-brain-mcp + публикация + финальный smoke
+- (30 мин) **K1+K2** — fork + rename в `~/Projects/mnemo-brain-mcp/`
 - (20 мин) **K3** — README в форке
 - (15 мин) **K4** — владелец регистрируется на PyPI, создаёт token
 - (10 мин) **K5** — `build + twine upload` (владелец)
@@ -1722,12 +1722,12 @@ system = (
 - [ ] I4: _do_vault_pull_sync handler
 - [ ] I5: tests/test_vault_sync.py зелёный
 
-### Phase K — mnemo-mcp + PyPI
-- [ ] K1: локальный fork в ~/Projects/mnemo-mcp
+### Phase K — mnemo-brain-mcp + PyPI
+- [ ] K1: локальный fork в ~/Projects/mnemo-brain-mcp
 - [ ] K2: rename выполнен
 - [ ] K3: README + LICENSE в форке
 - [ ] K4: PyPI account + 2FA + API token
-- [ ] K5: build + upload, `pip install mnemo-mcp` работает в чистом venv
+- [ ] K5: build + upload, `pip install mnemo-brain-mcp` работает в чистом venv
 - [ ] K6: 5 README + MCP_TESTING.md обновлены, grep чист
 
 ### Структурные фиксы

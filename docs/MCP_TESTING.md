@@ -16,8 +16,8 @@
 
 ## MCP client
 
-- [ ] `pip install mnemo-mcp` succeeds in a clean venv
-- [ ] `mnemo-mcp --help` runs without errors
+- [ ] `pip install mnemo-brain-mcp` succeeds in a clean venv
+- [ ] `mnemo-brain-mcp --help` runs without errors
 - [ ] Claude Code config added to `~/.claude/claude_mcp_config.json` with `LIGHTRAG_BASE_URL` → restart → MCP shows green status
 - [ ] In Claude Code: ask *"what is in my brain about \<topic you mentioned to bot\>"* → response references actual entities from graph
 
@@ -74,8 +74,8 @@ Run through this BEFORE declaring Phase F + G done.
 
 ### MCP install
 
-- [ ] `pip install mnemo-mcp` в чистом venv проходит
-- [ ] `mnemo-mcp --help` запускается
+- [ ] `pip install mnemo-brain-mcp` в чистом venv проходит
+- [ ] `mnemo-brain-mcp --help` запускается
 
 ### MCP query
 
