@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
-from typing import Any, Awaitable, Callable, Literal
+from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
+from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 import structlog
@@ -19,6 +20,7 @@ logger = structlog.get_logger()
 
 
 # ── extraction schema ─────────────────────────────────────────────────────────
+
 
 class EntityInfo(BaseModel):
     type: Literal["person", "project", "task", "job", "theme", "memory", "thought"]
@@ -52,11 +54,10 @@ class SessionExtraction(BaseModel):
 
 # ── LLM extraction ────────────────────────────────────────────────────────────
 
+
 async def extract(msgs: list[SessionMessage]) -> SessionExtraction:
     """Extract structured data from session messages via structured outputs."""
-    conversation = "\n".join(
-        f"{m.role.upper()}: {m.content}" for m in msgs
-    )
+    conversation = "\n".join(f"{m.role.upper()}: {m.content}" for m in msgs)
     client = get_client()
     response = await client.beta.chat.completions.parse(
         model=settings.openai_model_main,
@@ -134,9 +135,9 @@ async def _update_daily(
         hero_links.append(f"- [[{hero_path.removesuffix('.md')}|{hero.name}]]")
 
     open_q = (
-        "\n\n## Открытые вопросы\n\n" +
-        "\n".join(f"- {q}" for q in extraction.open_questions)
-        if extraction.open_questions else ""
+        "\n\n## Открытые вопросы\n\n" + "\n".join(f"- {q}" for q in extraction.open_questions)
+        if extraction.open_questions
+        else ""
     )
     block = f"### Сессия {session_id}\n\n{extraction.summary}{open_q}"
     if hero_links:
@@ -153,9 +154,7 @@ async def _update_daily(
     return rel_path
 
 
-async def apply_to_vault(
-    extraction: SessionExtraction, session_id: str
-) -> list[str]:
+async def apply_to_vault(extraction: SessionExtraction, session_id: str) -> list[str]:
     """Write extraction results to vault. Returns list of affected note paths."""
     from pathlib import Path
 
@@ -191,12 +190,13 @@ async def apply_to_vault(
     # Links from extraction
     for pair in extraction.links_to_create:
         if len(pair) == 2 and reader.note_exists(pair[0]) and reader.note_exists(pair[1]):
-            from src.tools.obsidian import _add_link, AddLinkParams
+            from src.tools.obsidian import AddLinkParams, _add_link
+
             await _add_link(AddLinkParams(from_path=pair[0], to_path=pair[1]), session_id)
 
     # Smart linker post-pass
     try:
-        from src.agent.linker import propose_links, apply_links
+        from src.agent.linker import apply_links, propose_links
         from src.session import manager as session_mgr
 
         redis = await session_mgr.get_redis()
@@ -212,9 +212,12 @@ async def apply_to_vault(
     # MOC regeneration for touched types
     try:
         from src.vault.moc import regenerate_moc
+
         _FOLDER_TYPE = {
-            "20_People": "person", "30_Jobs": "job",
-            "40_Projects": "project", "80_Themes": "theme",
+            "20_People": "person",
+            "30_Jobs": "job",
+            "40_Projects": "project",
+            "80_Themes": "theme",
         }
         touched_types: set[str] = set()
         for path in created:
@@ -241,12 +244,14 @@ async def apply_to_vault(
 async def _index_created(paths: list[str]) -> None:
     try:
         from src.lightrag_svc.indexer import index_files
+
         await index_files(paths)
     except Exception as exc:
         logger.warning("lightrag index skipped", error=str(exc))
 
 
 # ── full pipeline ─────────────────────────────────────────────────────────────
+
 
 async def run_pipeline(
     session: ActiveSession,
@@ -279,7 +284,8 @@ async def run_pipeline(
 
     open_q = (
         "\n\nОткрытые вопросы:\n" + "\n".join(f"• {q}" for q in extraction.open_questions)
-        if extraction.open_questions else ""
+        if extraction.open_questions
+        else ""
     )
     summary = (
         f"Записал: {len(created)} заметок\n"
@@ -299,15 +305,19 @@ async def _compact_msgs(msgs: list[SessionMessage]) -> list[SessionMessage]:
     resp = await client.chat.completions.create(
         model=settings.openai_model_fast,
         messages=[
-            {"role": "system", "content": "Сожми этот диалог в плотный нарратив, сохрани все факты."},
+            {
+                "role": "system",
+                "content": "Сожми этот диалог в плотный нарратив, сохрани все факты.",
+            },
             {"role": "user", "content": conversation},
         ],
     )
     summary_text = resp.choices[0].message.content or ""
-    from datetime import datetime, timezone
+    from datetime import datetime
+
     compact = SessionMessage(
         role="user",
         content=f"[compacted history]: {summary_text}",
-        ts=datetime.now(timezone.utc),
+        ts=datetime.now(UTC),
     )
     return [compact, *tail]

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from functools import lru_cache
+from functools import cache
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
@@ -8,7 +8,7 @@ from jinja2 import Environment, FileSystemLoader
 _PROMPTS_DIR = Path(__file__).parent.parent.parent / "prompts"
 
 
-@lru_cache(maxsize=None)
+@cache
 def load(name: str) -> str:
     """Load prompts/<name>.md verbatim (cached after first read)."""
     return (_PROMPTS_DIR / f"{name}.md").read_text(encoding="utf-8").strip()

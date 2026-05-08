@@ -7,14 +7,16 @@ import structlog
 from pydantic import BaseModel
 
 from src.config import settings
-from src.vault import reader, writer, search as vsearch
-from src.vault.frontmatter import NoteType, make_note_path, parse, serialize
 from src.tools.registry import ToolDef, get_registry
+from src.vault import reader, writer
+from src.vault import search as vsearch
+from src.vault.frontmatter import NoteType, make_note_path, parse, serialize
 
 logger = structlog.get_logger()
 
 
 # ── param models ──────────────────────────────────────────────────────────────
+
 
 class ListNotesParams(BaseModel):
     folder: str = ""
@@ -72,6 +74,7 @@ class GetVaultTreeParams(BaseModel):
 
 # ── handlers ──────────────────────────────────────────────────────────────────
 
+
 async def _list_notes(p: ListNotesParams, session_id: str = "") -> str:
     files = reader.list_md_files(p.folder)
     results: list[str] = []
@@ -120,7 +123,7 @@ async def _create_note(p: CreateNoteParams, session_id: str = "") -> str:
         raw = (Path(settings.vault_path) / existing_path).read_text(encoding="utf-8")
         fm_dict, _ = parse(raw)
         existing_aliases: list[str] = fm_dict.get("aliases", []) or []
-        merged = sorted(set(existing_aliases + [p.title] + aliases))
+        merged = sorted({*existing_aliases, p.title, *aliases})
         await writer.update_frontmatter(existing_path, {"aliases": merged}, session_id)
         return (
             f"найден дубликат: {existing_path} (score={candidates[0].score}). "
@@ -128,9 +131,7 @@ async def _create_note(p: CreateNoteParams, session_id: str = "") -> str:
         )
 
     if candidates and candidates[0].score >= 70:
-        cand_str = "\n".join(
-            f"  - {c.path} (score={c.score})" for c in candidates[:3]
-        )
+        cand_str = "\n".join(f"  - {c.path} (score={c.score})" for c in candidates[:3])
         return (
             f"возможные дубликаты для {p.title!r}:\n{cand_str}\n"
             f"Если это та же сущность — используй append_to_note к существующей. "
@@ -187,6 +188,7 @@ async def _add_link(p: AddLinkParams, session_id: str = "") -> str:
         fm_dict, _ = parse(raw)
         (Path(settings.vault_path) / src).write_text(serialize(fm_dict, body), encoding="utf-8")
         from src.vault import git_ops
+
         await git_ops.stage_and_commit(
             Path(settings.vault_path), [src], f"add-link {src} -> {dst} [session={session_id}]"
         )
@@ -203,6 +205,7 @@ async def _move_note(p: MoveNoteParams, session_id: str = "") -> str:
 
 async def _delete_note(p: DeleteNoteParams, session_id: str = "") -> str:
     from src.safety.confirmations import request_confirmation
+
     user_id = settings.allowed_user_ids[0]
     confirmed = await request_confirmation(user_id, f"Удалить заметку {p.path!r}?")
     if not confirmed:
@@ -234,19 +237,55 @@ async def _get_vault_tree(p: GetVaultTreeParams, session_id: str = "") -> str:
 
 # ── registration ──────────────────────────────────────────────────────────────
 
+
 def _register() -> None:
     reg = get_registry()
     specs = [
-        ("list_notes", "Список заметок с фильтрами по папке, типу, тегу", ListNotesParams, _list_notes),
+        (
+            "list_notes",
+            "Список заметок с фильтрами по папке, типу, тегу",
+            ListNotesParams,
+            _list_notes,
+        ),
         ("read_note", "Прочитать заметку: frontmatter + тело", ReadNoteParams, _read_note),
-        ("search_notes", "Полнотекстовый поиск по vault через ripgrep", SearchNotesParams, _search_notes),
-        ("create_note", "Создать новую заметку с автогенерацией пути по типу", CreateNoteParams, _create_note),
-        ("append_to_note", "Дописать блок текста в существующую заметку", AppendToNoteParams, _append_to_note),
-        ("update_frontmatter", "Обновить поля frontmatter заметки", UpdateFrontmatterParams, _update_frontmatter),
+        (
+            "search_notes",
+            "Полнотекстовый поиск по vault через ripgrep",
+            SearchNotesParams,
+            _search_notes,
+        ),
+        (
+            "create_note",
+            "Создать новую заметку с автогенерацией пути по типу",
+            CreateNoteParams,
+            _create_note,
+        ),
+        (
+            "append_to_note",
+            "Дописать блок текста в существующую заметку",
+            AppendToNoteParams,
+            _append_to_note,
+        ),
+        (
+            "update_frontmatter",
+            "Обновить поля frontmatter заметки",
+            UpdateFrontmatterParams,
+            _update_frontmatter,
+        ),
         ("add_link", "Добавить wikilink между заметками", AddLinkParams, _add_link),
         ("move_note", "Переместить заметку в другую папку/путь", MoveNoteParams, _move_note),
-        ("delete_note", "Удалить заметку (требует подтверждения пользователя)", DeleteNoteParams, _delete_note),
-        ("get_vault_tree", "Дерево папок vault с количеством заметок", GetVaultTreeParams, _get_vault_tree),
+        (
+            "delete_note",
+            "Удалить заметку (требует подтверждения пользователя)",
+            DeleteNoteParams,
+            _delete_note,
+        ),
+        (
+            "get_vault_tree",
+            "Дерево папок vault с количеством заметок",
+            GetVaultTreeParams,
+            _get_vault_tree,
+        ),
     ]
     for name, desc, cls, handler in specs:
         reg.register(ToolDef(name=name, description=desc, params_cls=cls, handler=handler))

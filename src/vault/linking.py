@@ -10,10 +10,21 @@ from src.vault.frontmatter import LINK_FIELDS, get_inverse_field, parse, seriali
 
 logger = structlog.get_logger()
 
-_LIST_FIELDS = frozenset({
-    "themes", "related_people", "employs", "projects", "tasks",
-    "examples", "mentions", "involved_in", "sub_themes", "memories", "thoughts",
-})
+_LIST_FIELDS = frozenset(
+    {
+        "themes",
+        "related_people",
+        "employs",
+        "projects",
+        "tasks",
+        "examples",
+        "mentions",
+        "involved_in",
+        "sub_themes",
+        "memories",
+        "thoughts",
+    }
+)
 
 
 async def add_typed_link(
@@ -41,7 +52,7 @@ async def add_typed_link(
         existing: list[str] = fm.get(relation, []) or []
         if wikilink_to in existing:
             return False
-        fm[relation] = sorted(set(existing + [wikilink_to]))
+        fm[relation] = sorted({*existing, wikilink_to})
     else:
         if fm.get(relation) == wikilink_to:
             return False
@@ -61,7 +72,7 @@ async def add_typed_link(
         wikilink_from = f"[[{from_path.removesuffix('.md')}]]"
         existing_inv: list[str] = fm_to.get(inverse, []) or []
         if wikilink_from not in existing_inv:
-            fm_to[inverse] = sorted(set(existing_inv + [wikilink_from]))
+            fm_to[inverse] = sorted({*existing_inv, wikilink_from})
             body_to = render_links_section(fm_to, body_to)
             to_full.write_text(serialize(fm_to, body_to), encoding="utf-8")
             paths_to_commit.append(to_path)
@@ -71,6 +82,18 @@ async def add_typed_link(
         paths_to_commit,
         f"link {from_path} -[{relation}]-> {to_path} [session={session_id}]",
     )
+
+    # Background re-index of both endpoints into LightRAG (custom KG, no LLM)
+    try:
+        import asyncio
+
+        from src.lightrag_svc.indexer import index_files
+
+        _t = asyncio.create_task(index_files(paths_to_commit))
+        _ = _t
+    except Exception as exc:
+        logger.warning("link reindex skipped", error=str(exc))
+
     return True
 
 

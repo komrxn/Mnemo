@@ -5,23 +5,32 @@ from pathlib import Path
 
 import structlog
 
+import src.tools.lightrag
+import src.tools.misc
+
+# Import tools modules so their _register() calls populate the registry
+import src.tools.obsidian
+import src.tools.scheduler  # noqa: F401
 from src.config import settings
 from src.logging_setup import setup_logging
 from src.telegram.bot import create_bot_and_dispatcher
 from src.vault import git_ops
 
-# Import tools modules so their _register() calls populate the registry
-import src.tools.obsidian   # noqa: F401
-import src.tools.misc       # noqa: F401
-import src.tools.scheduler  # noqa: F401
-import src.tools.lightrag   # noqa: F401
-
 logger = structlog.get_logger()
 
 _VAULT_FOLDERS = [
-    "00_Inbox", "10_Daily", "20_People", "30_Jobs",
-    "40_Projects", "50_Tasks", "60_Thoughts", "70_Memories",
-    "80_Themes", "90_Attachments/images", "90_Attachments/audio", "_meta",
+    "00_Inbox",
+    "10_Daily",
+    "20_People",
+    "30_Jobs",
+    "40_Projects",
+    "50_Tasks",
+    "60_Thoughts",
+    "70_Memories",
+    "80_Themes",
+    "90_Attachments/images",
+    "90_Attachments/audio",
+    "_meta",
 ]
 
 
@@ -29,6 +38,7 @@ def _init_sentry() -> None:
     if not settings.sentry_dsn:
         return
     import sentry_sdk
+
     sentry_sdk.init(dsn=settings.sentry_dsn, traces_sample_rate=0.1)
     logger.info("sentry enabled")
 
@@ -59,6 +69,7 @@ async def main() -> None:
 
     # Scheduler
     from src.scheduler.apsched import create_scheduler
+
     scheduler = create_scheduler()
     scheduler.start()
     logger.info("scheduler started")
@@ -66,6 +77,7 @@ async def main() -> None:
     bot, dp = create_bot_and_dispatcher()
 
     from src.session.lifecycle import run_forever
+
     lifecycle_task = asyncio.create_task(run_forever())
 
     try:

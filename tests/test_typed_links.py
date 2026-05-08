@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-import pytest
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
+
+import pytest
 
 
 @pytest.fixture
@@ -36,6 +37,7 @@ async def test_add_typed_link_creates_forward_and_inverse(vault: Path) -> None:
         ms_read.vault_path = str(vault)
 
         from src.vault.linking import add_typed_link
+
         result = await add_typed_link(
             "50_Tasks/foo.md", "40_Projects/bar.md", "for_project", "test"
         )
@@ -45,7 +47,10 @@ async def test_add_typed_link_creates_forward_and_inverse(vault: Path) -> None:
     foo_raw = (vault / "50_Tasks" / "foo.md").read_text(encoding="utf-8")
     bar_raw = (vault / "40_Projects" / "bar.md").read_text(encoding="utf-8")
 
-    assert "for_project: '[[40_Projects/bar]]'" in foo_raw or "for_project: [[40_Projects/bar]]" in foo_raw
+    assert (
+        "for_project: '[[40_Projects/bar]]'" in foo_raw
+        or "for_project: [[40_Projects/bar]]" in foo_raw
+    )
     assert "[[50_Tasks/foo]]" in bar_raw
     assert "## Связи" in foo_raw
     assert "## Связи" in bar_raw
@@ -73,6 +78,7 @@ async def test_add_typed_link_idempotent(vault: Path) -> None:
         ms_read.vault_path = str(vault)
 
         from src.vault.linking import add_typed_link
+
         await add_typed_link("50_Tasks/foo.md", "40_Projects/bar.md", "for_project", "t1")
         result2 = await add_typed_link("50_Tasks/foo.md", "40_Projects/bar.md", "for_project", "t2")
 

@@ -107,6 +107,37 @@ vault/
 
 ---
 
+## 连接到 AI 编程工具
+
+Mnemo 将知识图谱作为 MCP 服务器暴露，让 **Claude Code、Cursor、Cline** 等工具在帮你写代码时可以查询你的第二大脑。
+
+该包尚未发布到 PyPI，请从源码安装：
+
+```bash
+git clone https://github.com/desimpkins/daniel-lightrag-mcp.git
+cd daniel-lightrag-mcp && pip install -e .
+```
+
+在 Claude Code 的 `~/.claude/claude_mcp_config.json` 中添加：
+
+```json
+{
+  "mcpServers": {
+    "mnemo-brain": {
+      "command": "daniel-lightrag-mcp",
+      "env": {
+        "LIGHTRAG_BASE_URL": "http://localhost:9621",
+        "LIGHTRAG_API_KEY": "<secrets/lightrag_api_key.txt 的内容>"
+      }
+    }
+  }
+}
+```
+
+完整安装指南：[English README](../README.md#connect-your-brain-to-ai-coding-tools)
+
+---
+
 ## 安全与隐私
 
 - **单用户设计** — `ALLOWED_USER_IDS` 白名单在中间件层面强制执行

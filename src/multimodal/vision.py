@@ -12,8 +12,13 @@ _VISION_PROMPT = (
     "Если это скриншот — опиши содержимое экрана."
 )
 
-_MIME_MAP = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
-             "gif": "image/gif", "webp": "image/webp"}
+_MIME_MAP = {
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "png": "image/png",
+    "gif": "image/gif",
+    "webp": "image/webp",
+}
 
 
 async def describe(image_path: Path) -> str:
@@ -24,14 +29,18 @@ async def describe(image_path: Path) -> str:
 
     response = await client.chat.completions.create(
         model=settings.openai_model_vision,
-        messages=[{
-            "role": "user",
-            "content": [
-                {"type": "image_url",
-                 "image_url": {"url": f"data:{mime};base64,{data}", "detail": "high"}},
-                {"type": "text", "text": _VISION_PROMPT},
-            ],
-        }],
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{mime};base64,{data}", "detail": "high"},
+                    },
+                    {"type": "text", "text": _VISION_PROMPT},
+                ],
+            }
+        ],
         max_tokens=1500,
     )
     return response.choices[0].message.content or ""

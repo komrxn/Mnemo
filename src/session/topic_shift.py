@@ -40,9 +40,7 @@ async def detect(
     # Mark as checked (even before the call so parallel requests don't duplicate)
     await redis.set(cache_key, b"1", ex=_CACHE_TTL)
 
-    last_five = "\n".join(
-        f"{m.role.upper()}: {m.content[:200]}" for m in recent_msgs[-5:]
-    )
+    last_five = "\n".join(f"{m.role.upper()}: {m.content[:200]}" for m in recent_msgs[-5:])
     system = prompts.render(
         "topic_shift",
         recent_messages=last_five,

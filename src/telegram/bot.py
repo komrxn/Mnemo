@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from typing import Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 import structlog
-from aiogram import BaseMiddleware, Bot, Dispatcher, Router, F
+from aiogram import BaseMiddleware, Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.types import CallbackQuery, TelegramObject
@@ -58,6 +59,7 @@ async def handle_confirm_callback(callback: CallbackQuery) -> None:
     confirmed = answer == "yes"
 
     from src.safety.confirmations import publish_answer
+
     await publish_answer(correlation_id, confirmed)
 
     label = "Подтверждено" if confirmed else "Отменено"

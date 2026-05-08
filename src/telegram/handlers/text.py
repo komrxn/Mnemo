@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
-from typing import Awaitable, Callable, Literal
+from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
+from typing import Literal
 
 import orjson
 import structlog
@@ -28,10 +29,24 @@ _PERSONALITY_MAP = {
 
 # ── onboarding helpers ────────────────────────────────────────────────────────
 
+
 def _is_affirmative(text: str) -> bool:
     low = text.strip().lower()
-    affirmatives = ("да", "ок", "ok", "yes", "конечно", "давай", "поехали",
-                    "верно", "согласен", "согласна", "именно", "+", "👍")
+    affirmatives = (
+        "да",
+        "ок",
+        "ok",
+        "yes",
+        "конечно",
+        "давай",
+        "поехали",
+        "верно",
+        "согласен",
+        "согласна",
+        "именно",
+        "+",
+        "👍",
+    )
     return any(w in low for w in affirmatives)
 
 
@@ -42,10 +57,17 @@ async def _run_onboarding_plan(portrait: str, profile: dict[str, object]) -> str
     system = prompts.render("onboarding", bot_name=bot_name, personality=personality)
     messages = [
         {"role": "system", "content": system},
-        {"role": "user", "content": f"Текст портрета:\n\n{portrait}\n\nСоставь план создания заметок (только план, не создавай ничего)."},
+        {
+            "role": "user",
+            "content": (
+                f"Текст портрета:\n\n{portrait}\n\n"
+                "Составь план создания заметок (только план, не создавай ничего)."
+            ),
+        },
     ]
     client = agent_loop.get_client()
     from src.config import settings
+
     response = await client.chat.completions.create(
         model=settings.openai_model_main,
         messages=messages,
@@ -80,6 +102,7 @@ async def _create_owner_note(
         response_format={"type": "json_object"},
     )
     import json
+
     raw_json = resp.choices[0].message.content or "{}"
     try:
         data = json.loads(raw_json)
@@ -99,6 +122,7 @@ async def _create_owner_note(
     }
 
     from src.vault import writer as vault_writer
+
     try:
         await vault_writer.write_note("_meta/owner.md", body, fm)
     except Exception as exc:
@@ -107,6 +131,7 @@ async def _create_owner_note(
 
     # Persist owner info in profile
     from src.session import manager as session_mgr2
+
     redis = await session_mgr2.get_redis()
     user_id = int(str(profile.get("user_id", settings.allowed_user_ids[0])))
     await session_mgr2.update_profile(
@@ -125,11 +150,14 @@ async def _run_onboarding_execute(
     system = prompts.render("onboarding", bot_name=bot_name, personality=personality)
     messages = [
         {"role": "system", "content": system},
-        {"role": "user", "content": (
-            f"Текст портрета:\n\n{portrait}\n\n"
-            "Пользователь подтвердил. Создай все заметки через инструменты obsidian.*. "
-            "В конце создай _meta/portrait.md с исходным текстом."
-        )},
+        {
+            "role": "user",
+            "content": (
+                f"Текст портрета:\n\n{portrait}\n\n"
+                "Пользователь подтвердил. Создай все заметки через инструменты obsidian.*. "
+                "В конце создай _meta/portrait.md с исходным текстом."
+            ),
+        },
     ]
     registry = get_registry()
 
@@ -140,6 +168,7 @@ async def _run_onboarding_execute(
     await reply_fn(result)
 
     from src.vault import writer as vault_writer
+
     try:
         await vault_writer.write_note("_meta/portrait.md", portrait, {"type": "inbox"})
     except Exception as exc:
@@ -152,6 +181,7 @@ async def _run_onboarding_execute(
 
     try:
         from src.scheduler.defaults import bootstrap_defaults
+
         bootstrap_defaults()
         logger.info("default tasks bootstrapped after onboarding")
     except Exception as exc:
@@ -200,7 +230,9 @@ async def _handle_onboarding(
 
     if step == "step_owner_name":
         owner_name = content.strip() or "Владелец"
-        await session_mgr.update_profile(redis, user_id, {"owner_name": owner_name, "user_id": user_id})
+        await session_mgr.update_profile(
+            redis, user_id, {"owner_name": owner_name, "user_id": user_id}
+        )
         await redis.set(key, orjson.dumps({"state": "awaiting_portrait"}), ex=86400)
         await reply_fn(
             f"Отлично, <b>{owner_name}</b>! И последнее — <b>расскажи о себе</b>:\n\n"
@@ -239,6 +271,7 @@ async def _handle_onboarding(
 
 
 # ── topic shift helpers ───────────────────────────────────────────────────────
+
 
 async def _maybe_shift_session(
     user_id: int,
@@ -280,6 +313,7 @@ async def _run_pipeline_bg(
     notify: Callable[[str], Awaitable[None]],
 ) -> None:
     from src.agent.extractor import run_pipeline
+
     try:
         summary = await run_pipeline(session, msgs, notify)
         await notify(summary)
@@ -288,6 +322,7 @@ async def _run_pipeline_bg(
 
 
 # ── main processing ───────────────────────────────────────────────────────────
+
 
 async def process_input(
     user_id: int,
@@ -315,7 +350,7 @@ async def process_input(
         session_mgr.SessionMessage(
             role="user",
             content=content,
-            ts=datetime.now(timezone.utc),
+            ts=datetime.now(UTC),
             kind=kind,
             meta=meta or {},
         ),
@@ -324,10 +359,7 @@ async def process_input(
 
     profile = await session_mgr.get_profile(redis, user_id)
 
-    history = [
-        {"role": m.role, "content": m.content}
-        for m in history_msgs[-30:]
-    ]
+    history = [{"role": m.role, "content": m.content} for m in history_msgs[-30:]]
 
     bot_name = str(profile.get("bot_name", "Ассистент"))
     personality = str(profile.get("personality", ""))
@@ -346,7 +378,7 @@ async def process_input(
         session_mgr.SessionMessage(
             role="assistant",
             content=reply,
-            ts=datetime.now(timezone.utc),
+            ts=datetime.now(UTC),
         ),
     )
 

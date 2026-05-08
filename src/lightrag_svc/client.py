@@ -12,13 +12,22 @@ logger = structlog.get_logger()
 _rag: Any | None = None
 
 _DEFAULT_ENTITY_TYPES = [
-    "Person", "Organization", "Project", "Task",
-    "Concept", "Skill", "Tool", "Goal", "Theme", "Event",
+    "Person",
+    "Organization",
+    "Project",
+    "Task",
+    "Concept",
+    "Skill",
+    "Tool",
+    "Goal",
+    "Theme",
+    "Event",
 ]
 
 
 def _llm_func_factory() -> Any:
     """Return async LLM callable for LightRAG."""
+
     async def llm_func(
         prompt: str,
         system_prompt: str = "",
@@ -26,6 +35,7 @@ def _llm_func_factory() -> Any:
         **kwargs: Any,
     ) -> str:
         from src.agent.loop import get_client
+
         client = get_client()
         msgs: list[dict[str, str]] = []
         if system_prompt:
@@ -48,6 +58,7 @@ def _embedding_func_factory() -> Any:
 
     async def embed(texts: list[str]) -> np.ndarray:
         from src.agent.loop import get_client
+
         client = get_client()
         resp = await client.embeddings.create(
             model=settings.openai_embed_model,
@@ -59,8 +70,13 @@ def _embedding_func_factory() -> Any:
 
 
 async def _load_entity_types() -> list[str]:
-    """Read entity_types from _meta/ontology.md if present, otherwise use defaults."""
+    """Read entity_types from _meta/ontology.md if present, otherwise use defaults.
+
+    Note: после Phase H используем ainsert_custom_kg, так что entity_types
+    влияет только на retrieval-side filtering (не на extraction).
+    """
     from pathlib import Path
+
     ontology = Path(settings.vault_path) / "_meta" / "ontology.md"
     if not ontology.exists():
         return list(_DEFAULT_ENTITY_TYPES)
@@ -78,9 +94,15 @@ async def get_rag() -> Any:
     if _rag is not None:
         return _rag
 
-    from lightrag import LightRAG  # type: ignore[import]
     import os
+
+    from lightrag import LightRAG  # type: ignore[import]
+
     os.makedirs(settings.lightrag_storage, exist_ok=True)
+
+    from lightrag.kg.shared_storage import initialize_share_data  # type: ignore[import]
+
+    initialize_share_data(workers=2)
 
     entity_types = await _load_entity_types()
     rag = LightRAG(
@@ -91,8 +113,14 @@ async def get_rag() -> Any:
         chunk_overlap_token_size=100,
         addon_params={"entity_types": entity_types},
     )
+    await rag.initialize_storages()  # type: ignore[attr-defined]
     _rag = rag
-    logger.info("lightrag initialized", storage=settings.lightrag_storage, entity_types=entity_types)
+    logger.info(
+        "lightrag initialized",
+        storage=settings.lightrag_storage,
+        entity_types=entity_types,
+        multiprocess=True,
+    )
     return _rag
 
 
@@ -103,6 +131,7 @@ async def insert(text: str) -> None:
 
 async def query(question: str, mode: str = "mix") -> str:
     from lightrag import QueryParam  # type: ignore[import]
+
     rag = await get_rag()
     result = await rag.aquery(question, param=QueryParam(mode=mode))  # type: ignore[attr-defined]
     return result or "нет результатов"

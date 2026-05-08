@@ -19,6 +19,7 @@ _TASK_META_KEY = "scheduler:task_meta"
 
 # ── param models ──────────────────────────────────────────────────────────────
 
+
 class ScheduleTaskParams(BaseModel):
     when: str
     kind: str
@@ -43,6 +44,7 @@ class CancelTaskParams(BaseModel):
 
 # ── trigger builder ───────────────────────────────────────────────────────────
 
+
 def _make_trigger(when: str) -> Any:
     from apscheduler.triggers.cron import CronTrigger
     from apscheduler.triggers.date import DateTrigger
@@ -59,21 +61,27 @@ def _make_trigger(when: str) -> Any:
     if len(parts) != 5:
         raise ValueError(f"ожидается cron (5 полей) или ISO datetime, получено: {when!r}")
     return CronTrigger(
-        minute=parts[0], hour=parts[1], day=parts[2],
-        month=parts[3], day_of_week=parts[4],
+        minute=parts[0],
+        hour=parts[1],
+        day=parts[2],
+        month=parts[3],
+        day_of_week=parts[4],
     )
 
 
 # ── redis helpers ─────────────────────────────────────────────────────────────
 
+
 async def _save_meta(task_id: str, meta: dict[str, Any]) -> None:
     from src.session.manager import get_redis
+
     redis = await get_redis()
     await redis.hset(_TASK_META_KEY, task_id, orjson.dumps(meta))
 
 
 async def _load_meta(task_id: str) -> dict[str, Any] | None:
     from src.session.manager import get_redis
+
     redis = await get_redis()
     raw = await redis.hget(_TASK_META_KEY, task_id)
     return orjson.loads(raw) if raw else None
@@ -81,23 +89,26 @@ async def _load_meta(task_id: str) -> dict[str, Any] | None:
 
 async def _remove_meta(task_id: str) -> None:
     from src.session.manager import get_redis
+
     redis = await get_redis()
     await redis.hdel(_TASK_META_KEY, task_id)
 
 
 async def _sync_vault() -> None:
     """Mirror all task metadata to _meta/scheduled_tasks.md."""
-    from src.session.manager import get_redis
     from src.scheduler.apsched import get_scheduler
+    from src.session.manager import get_redis
     from src.vault import writer
 
     redis = await get_redis()
     all_meta_raw = await redis.hgetall(_TASK_META_KEY)
     scheduler = get_scheduler()
 
-    lines = ["# Запланированные задачи\n",
-             "| ID | Описание | Расписание | Тип | Следующий запуск |",
-             "|---|---|---|---|---|"]
+    lines = [
+        "# Запланированные задачи\n",
+        "| ID | Описание | Расписание | Тип | Следующий запуск |",
+        "|---|---|---|---|---|",
+    ]
 
     for raw_key, raw_val in all_meta_raw.items():
         tid = raw_key.decode() if isinstance(raw_key, bytes) else raw_key
@@ -117,6 +128,7 @@ async def _sync_vault() -> None:
 
 # ── handlers ──────────────────────────────────────────────────────────────────
 
+
 async def _schedule_task(p: ScheduleTaskParams, session_id: str = "") -> str:
     from src.scheduler.apsched import get_scheduler
     from src.scheduler.triggers import proactive_trigger
@@ -135,10 +147,16 @@ async def _schedule_task(p: ScheduleTaskParams, session_id: str = "") -> str:
         kwargs={"task_id": task_id, "kind": p.kind, "payload": p.payload},
         replace_existing=True,
     )
-    await _save_meta(task_id, {
-        "task_id": task_id, "description": p.description,
-        "kind": p.kind, "when": p.when, "payload": p.payload,
-    })
+    await _save_meta(
+        task_id,
+        {
+            "task_id": task_id,
+            "description": p.description,
+            "kind": p.kind,
+            "when": p.when,
+            "payload": p.payload,
+        },
+    )
     await _sync_vault()
     logger.info("task scheduled", task_id=task_id, when=p.when)
     return f"задача создана: {task_id} ({p.description})"
@@ -146,6 +164,7 @@ async def _schedule_task(p: ScheduleTaskParams, session_id: str = "") -> str:
 
 async def _list_tasks(p: ListTasksParams, session_id: str = "") -> str:
     from src.scheduler.apsched import get_scheduler
+
     jobs = get_scheduler().get_jobs()
     if not jobs:
         return "нет запланированных задач"
@@ -158,6 +177,7 @@ async def _list_tasks(p: ListTasksParams, session_id: str = "") -> str:
 
 async def _update_task(p: UpdateTaskParams, session_id: str = "") -> str:
     from src.scheduler.apsched import get_scheduler
+
     scheduler = get_scheduler()
     job = scheduler.get_job(p.task_id)
     if job is None:
@@ -184,6 +204,7 @@ async def _update_task(p: UpdateTaskParams, session_id: str = "") -> str:
 
 async def _cancel_task(p: CancelTaskParams, session_id: str = "") -> str:
     from src.scheduler.apsched import get_scheduler
+
     scheduler = get_scheduler()
     job = scheduler.get_job(p.task_id)
     if job is None:
@@ -196,12 +217,28 @@ async def _cancel_task(p: CancelTaskParams, session_id: str = "") -> str:
 
 # ── registration ──────────────────────────────────────────────────────────────
 
+
 def _register() -> None:
     reg = get_registry()
     specs = [
-        ("schedule_task", "Запланировать задачу: when = cron (5 полей) или ISO datetime", ScheduleTaskParams, _schedule_task),
-        ("list_tasks", "Список всех запланированных задач с временем следующего запуска", ListTasksParams, _list_tasks),
-        ("update_task", "Обновить расписание, описание или payload задачи", UpdateTaskParams, _update_task),
+        (
+            "schedule_task",
+            "Запланировать задачу: when = cron (5 полей) или ISO datetime",
+            ScheduleTaskParams,
+            _schedule_task,
+        ),
+        (
+            "list_tasks",
+            "Список всех запланированных задач с временем следующего запуска",
+            ListTasksParams,
+            _list_tasks,
+        ),
+        (
+            "update_task",
+            "Обновить расписание, описание или payload задачи",
+            UpdateTaskParams,
+            _update_task,
+        ),
         ("cancel_task", "Отменить запланированную задачу", CancelTaskParams, _cancel_task),
     ]
     for name, desc, cls, handler in specs:

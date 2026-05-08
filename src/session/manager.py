@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Literal
 
 import orjson
@@ -14,23 +14,30 @@ logger = structlog.get_logger()
 
 # ── key helpers (never inline these strings elsewhere) ────────────────────────
 
+
 def key_active(user_id: int) -> str:
     return f"session:active:{user_id}"
+
 
 def key_msgs(session_id: str) -> str:
     return f"session:msgs:{session_id}"
 
+
 def key_summary(session_id: str) -> str:
     return f"session:summary:{session_id}"
+
 
 def key_scratch(session_id: str) -> str:
     return f"session:scratch:{session_id}"
 
+
 def key_profile(user_id: int) -> str:
     return f"user:profile:{user_id}"
 
+
 def key_cron_overrides(user_id: int) -> str:
     return f"user:cron_overrides:{user_id}"
+
 
 def key_onboarding(user_id: int) -> str:
     return f"user:onboarding:{user_id}"
@@ -38,10 +45,11 @@ def key_onboarding(user_id: int) -> str:
 
 # ── TTLs ──────────────────────────────────────────────────────────────────────
 
-_ACTIVE_TTL = 24 * 3600   # 24 h sliding
+_ACTIVE_TTL = 24 * 3600  # 24 h sliding
 _MSGS_TTL = 7 * 24 * 3600  # 7 days
 
 # ── models ────────────────────────────────────────────────────────────────────
+
 
 class ActiveSession(BaseModel):
     session_id: str
@@ -72,17 +80,20 @@ async def get_redis() -> Redis:
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
+
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _make_session_id() -> str:
     from zoneinfo import ZoneInfo
+
     tz = ZoneInfo(settings.tz)
     return f"ses_{datetime.now(tz).strftime('%Y-%m-%d_%H-%M-%S')}"
 
 
 # ── CRUD ──────────────────────────────────────────────────────────────────────
+
 
 async def get_active(redis: Redis, user_id: int) -> ActiveSession | None:
     raw = await redis.get(key_active(user_id))
@@ -115,9 +126,7 @@ async def get_or_create(redis: Redis, user_id: int) -> ActiveSession:
 
 async def touch(redis: Redis, user_id: int, session: ActiveSession, topic: str = "") -> None:
     """Refresh sliding TTL and update last_msg_at."""
-    updated = session.model_copy(
-        update={"last_msg_at": _now(), "topic": topic or session.topic}
-    )
+    updated = session.model_copy(update={"last_msg_at": _now(), "topic": topic or session.topic})
     await redis.set(
         key_active(user_id),
         orjson.dumps(updated.model_dump(mode="json")),
@@ -166,7 +175,7 @@ async def scan_idle(redis: Redis, timeout_min: int) -> list[tuple[int, ActiveSes
         session = ActiveSession.model_validate(orjson.loads(raw))
         last = session.last_msg_at
         if last.tzinfo is None:
-            last = last.replace(tzinfo=timezone.utc)
+            last = last.replace(tzinfo=UTC)
         idle_min = (now - last).total_seconds() / 60
         if idle_min >= timeout_min:
             user_id = int(key.decode().rsplit(":", 1)[-1])

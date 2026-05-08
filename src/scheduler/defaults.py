@@ -35,10 +35,10 @@ _DEFAULTS: list[tuple[str, str, str, dict]] = [  # type: ignore[type-arg]
         {"check": "no_mentions_7d", "description": "Проекты без упоминаний 7 дней"},
     ),
     (
-        "lightrag_ontology_and_reindex",
+        "lightrag_full_reindex",
         "0 3 * * 6",
         "system",
-        {"action": "regenerate_ontology_then_reindex", "description": "LightRAG онтология + полный реиндекс"},
+        {"action": "full_reindex", "description": "LightRAG еженедельный full reindex"},
     ),
 ]
 

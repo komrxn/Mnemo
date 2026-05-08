@@ -80,9 +80,7 @@ async def append_to_note(rel_path: str, block: str, session_id: str = "") -> str
     )
 
 
-async def update_frontmatter(
-    rel_path: str, patch: dict[str, Any], session_id: str = ""
-) -> str:
+async def update_frontmatter(rel_path: str, patch: dict[str, Any], session_id: str = "") -> str:
     path = _resolve(rel_path)
     raw = path.read_text(encoding="utf-8")
     fm, body = parse(raw)
@@ -99,10 +97,19 @@ async def move_note(old_rel: str, new_rel: str, session_id: str = "") -> str:
     new = _resolve(new_rel)
     new.parent.mkdir(parents=True, exist_ok=True)
     old.rename(new)
-    # stage both: deletion of old, addition of new
-    return await git_ops.stage_and_commit(
+    sha = await git_ops.stage_and_commit(
         _vault(), [old_rel, new_rel], f"move {old_rel} -> {new_rel} [session={session_id}]"
     )
+    try:
+        import asyncio
+
+        from src.lightrag_svc.graph_sync import handle_rename
+
+        _t = asyncio.create_task(handle_rename(old_rel, new_rel))
+        _ = _t
+    except Exception as exc:
+        logger.warning("graph rename hook skipped", error=str(exc))
+    return sha
 
 
 async def write_attachment(rel_path: str, data: bytes, session_id: str = "") -> str:
@@ -112,6 +119,7 @@ async def write_attachment(rel_path: str, data: bytes, session_id: str = "") -> 
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_bytes(data)
     import os
+
     os.replace(tmp, path)  # atomic
     return await git_ops.stage_and_commit(
         _vault(), [rel_path], f"attachment {rel_path} [session={session_id}]"
@@ -123,6 +131,16 @@ async def delete_note(rel_path: str, *, confirmed: bool, session_id: str = "") -
         raise SafetyError(f"delete_note({rel_path!r}) requires confirmed=True")
     path = _resolve(rel_path)
     path.unlink()
-    return await git_ops.stage_and_commit(
+    sha = await git_ops.stage_and_commit(
         _vault(), [rel_path], f"delete {rel_path} [session={session_id}]"
     )
+    try:
+        import asyncio
+
+        from src.lightrag_svc.graph_sync import handle_delete
+
+        _t = asyncio.create_task(handle_delete(rel_path))
+        _ = _t
+    except Exception as exc:
+        logger.warning("graph delete hook skipped", error=str(exc))
+    return sha

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import structlog
 import orjson
+import structlog
 
 from src.agent import prompts
 from src.config import settings
@@ -13,8 +13,8 @@ _LAST_RUN_TTL = 30  # idempotency window in seconds
 
 async def proactive_trigger(task_id: str, kind: str, payload: dict) -> None:  # type: ignore[type-arg]
     """Single entrypoint for all scheduled jobs. Calls LLM to decide whether to message user."""
-    from src.session.manager import get_redis, get_profile
     from src.agent.loop import run_chat
+    from src.session.manager import get_profile, get_redis
     from src.tools.registry import get_registry
 
     redis = await get_redis()
@@ -63,6 +63,7 @@ async def proactive_trigger(task_id: str, kind: str, payload: dict) -> None:  # 
         return
 
     from src.telegram.bot import get_bot
+
     bot = get_bot()
     await bot.send_message(user_id, reply)
     logger.info("proactive sent", task_id=task_id, kind=kind)
@@ -70,21 +71,19 @@ async def proactive_trigger(task_id: str, kind: str, payload: dict) -> None:  # 
 
 async def _handle_system_task(payload: dict) -> None:  # type: ignore[type-arg]
     action = payload.get("action")
-    if action == "regenerate_ontology_then_reindex":
+    if action in {"full_reindex", "regenerate_ontology_then_reindex"}:
         try:
-            from src.lightrag_svc.ontology import generate_ontology
             from src.lightrag_svc.indexer import full_reindex
-            from src.lightrag_svc import client as lc
-            await generate_ontology()
-            lc._rag = None  # force re-init with new entity_types
+
             await full_reindex()
-            logger.info("ontology + full reindex completed")
+            logger.info("full reindex completed")
         except Exception as exc:
-            logger.error("ontology+reindex failed", error=str(exc))
+            logger.error("reindex failed", error=str(exc))
 
 
 def _load_recent_sessions() -> str:
     from pathlib import Path
+
     path = Path(settings.vault_path) / "_meta" / "session_log.md"
     if not path.exists():
         return "нет записей о прошлых сессиях"

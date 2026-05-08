@@ -13,8 +13,18 @@ logger = structlog.get_logger()
 def _ripgrep_sync(query: str, vault_path: str, top_k: int) -> list[dict[str, str]]:
     """Run ripgrep synchronously (called via asyncio.to_thread)."""
     result = subprocess.run(
-        ["rg", "--ignore-case", "--with-filename", "--line-number",
-         "--max-count", "3", "--glob", "*.md", query, vault_path],
+        [
+            "rg",
+            "--ignore-case",
+            "--with-filename",
+            "--line-number",
+            "--max-count",
+            "3",
+            "--glob",
+            "*.md",
+            query,
+            vault_path,
+        ],
         capture_output=True,
         text=True,
     )

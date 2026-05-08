@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 import structlog
-from openai import AsyncOpenAI, APIConnectionError, RateLimitError
+from openai import APIConnectionError, AsyncOpenAI, RateLimitError
 
 from src.config import settings
 
@@ -30,10 +31,13 @@ def build_messages(
     msgs: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
     if user_profile:
         import orjson
-        msgs.append({
-            "role": "system",
-            "content": f"Профиль пользователя: {orjson.dumps(user_profile).decode()}",
-        })
+
+        msgs.append(
+            {
+                "role": "system",
+                "content": f"Профиль пользователя: {orjson.dumps(user_profile).decode()}",
+            }
+        )
     msgs.extend(history)
     msgs.append({"role": "user", "content": new_content})
     return msgs
@@ -50,7 +54,7 @@ async def _call_with_retry(
         except (APIConnectionError, RateLimitError) as exc:
             if attempt == 2:
                 raise
-            wait = 2 ** attempt
+            wait = 2**attempt
             logger.warning("openai retry", attempt=attempt + 1, error=str(exc), wait=wait)
             await asyncio.sleep(wait)
     raise RuntimeError("unreachable")
@@ -113,11 +117,13 @@ async def run_chat(
                     logger.warning("tool dispatch error", tool=tc.function.name, error=str(exc))
                     result = f"ошибка: {exc}"
 
-                msgs.append({
-                    "role": "tool",
-                    "tool_call_id": tc.id,
-                    "content": result,
-                })
+                msgs.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": result,
+                    }
+                )
         else:
             return msg.content or ""
 

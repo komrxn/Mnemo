@@ -10,55 +10,76 @@ logger = structlog.get_logger()
 
 
 async def index_files(paths: list[str]) -> None:
-    """Incrementally index specific vault files into LightRAG graph."""
+    """Incrementally update the LightRAG graph from vault notes.
+
+    Uses custom KG injection: our typed wikilinks become graph edges directly,
+    no LLM extraction. Cost: ~$0.0001 per note (embeddings only).
+    """
     if not paths:
         return
     from src.lightrag_svc.client import get_rag
+    from src.lightrag_svc.converter import vault_to_custom_kg
 
-    vault = Path(settings.vault_path)
-    texts: list[str] = []
-    for rel in paths:
-        fpath = vault / rel
-        if not fpath.exists() or fpath.suffix != ".md":
-            continue
-        text = fpath.read_text(encoding="utf-8").strip()
-        if text:
-            texts.append(text)
-
-    if not texts:
+    custom_kg = vault_to_custom_kg(paths)
+    if not custom_kg["entities"]:
+        logger.info("incremental index skipped: no entities")
         return
 
     rag = await get_rag()
     try:
-        await rag.ainsert(texts)  # type: ignore[attr-defined]
-        logger.info("incremental index done", files=len(texts))
+        await rag.ainsert_custom_kg(custom_kg)  # type: ignore[attr-defined]
+        logger.info(
+            "incremental index done (custom kg)",
+            entities=len(custom_kg["entities"]),
+            relations=len(custom_kg["relationships"]),
+            chunks=len(custom_kg["chunks"]),
+        )
     except Exception as exc:
         logger.error("incremental index failed", error=str(exc))
 
 
 async def full_reindex() -> None:
-    """Re-index the entire vault from scratch."""
+    """Re-build the LightRAG graph from scratch from current vault state."""
     vault = Path(settings.vault_path)
-    all_md = list(vault.rglob("*.md"))
-    logger.info("full reindex start", files=len(all_md))
+    all_md = [
+        m
+        for m in vault.rglob("*.md")
+        if not str(m.relative_to(vault)).startswith(
+            ("_meta/MOC_", "_meta/ontology", "_meta/portrait")
+        )
+    ]
+    rel_paths = [str(m.relative_to(vault)) for m in all_md]
+    logger.info("full reindex start (custom kg)", files=len(rel_paths))
 
-    texts: list[str] = []
-    for fpath in all_md:
-        text = fpath.read_text(encoding="utf-8").strip()
-        if text:
-            texts.append(text)
+    from src.lightrag_svc import client as lc
+    from src.lightrag_svc.client import get_rag
+    from src.lightrag_svc.converter import vault_to_custom_kg
 
-    if not texts:
+    # Drop singleton so next get_rag() reinitializes storages (idempotent upsert)
+    if lc._rag is not None:
+        lc._rag = None
+
+    custom_kg = vault_to_custom_kg(rel_paths)
+    if not custom_kg["entities"]:
+        logger.info("full reindex: no entities")
         return
 
-    from src.lightrag_svc.client import get_rag
     rag = await get_rag()
     try:
-        batch_size = 50
-        for i in range(0, len(texts), batch_size):
-            batch = texts[i:i + batch_size]
-            await rag.ainsert(batch)  # type: ignore[attr-defined]
-            logger.info("reindex batch", done=i + len(batch), total=len(texts))
+        BATCH = 100
+        ents = custom_kg["entities"]
+        rels = custom_kg["relationships"]
+        chks = custom_kg["chunks"]
+        for i in range(0, len(ents), BATCH):
+            batch_ent_names = {e["entity_name"] for e in ents[i : i + BATCH]}
+            batch_src_ids = {e["source_id"] for e in ents[i : i + BATCH]}
+            sub: dict[str, list] = {
+                "entities": ents[i : i + BATCH],
+                "relationships": [r for r in rels if r["src_id"] in batch_ent_names],
+                "chunks": [c for c in chks if c["source_id"] in batch_src_ids],
+            }
+            await rag.ainsert_custom_kg(sub)  # type: ignore[attr-defined]
+            logger.info("reindex batch done", done=i + len(sub["entities"]), total=len(ents))
     except Exception as exc:
         logger.error("full reindex failed", error=str(exc))
         raise

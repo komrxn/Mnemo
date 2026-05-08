@@ -13,8 +13,14 @@ from src.vault.frontmatter import parse
 logger = structlog.get_logger()
 
 RelationType = Literal[
-    "owner", "works_at", "for_job", "for_project",
-    "themes", "about_person", "related_people", "parent_theme",
+    "owner",
+    "works_at",
+    "for_job",
+    "for_project",
+    "themes",
+    "about_person",
+    "related_people",
+    "parent_theme",
 ]
 
 
@@ -98,8 +104,10 @@ async def apply_links(links: list[LinkProposal], session_id: str) -> int:
         except Exception as exc:
             logger.warning(
                 "link apply failed",
-                from_=link.from_path, to=link.to_path,
-                relation=link.relation, error=str(exc),
+                from_=link.from_path,
+                to=link.to_path,
+                relation=link.relation,
+                error=str(exc),
             )
     return applied
 
@@ -149,8 +157,16 @@ def _build_candidates_context(touched_paths: list[str]) -> str:
 
 
 def _extract_existing_links(fm: dict) -> list[str]:  # type: ignore[type-arg]
-    keys = ["owner", "works_at", "for_job", "for_project", "themes",
-            "about_person", "related_people", "parent_theme"]
+    keys = [
+        "owner",
+        "works_at",
+        "for_job",
+        "for_project",
+        "themes",
+        "about_person",
+        "related_people",
+        "parent_theme",
+    ]
     result: list[str] = []
     for k in keys:
         v = fm.get(k)

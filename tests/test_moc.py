@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import pytest
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 import yaml
 
 
@@ -26,7 +26,10 @@ def vault(tmp_path: Path) -> Path:
 @pytest.mark.asyncio
 async def test_regenerate_moc_creates_file(vault: Path) -> None:
     async def fake_write_note(
-        rel_path: str, body: str, fm: dict, session_id: str = ""  # type: ignore[type-arg]
+        rel_path: str,
+        body: str,
+        fm: dict,
+        session_id: str = "",  # type: ignore[type-arg]
     ) -> str:
         full = vault / rel_path
         full.parent.mkdir(parents=True, exist_ok=True)
@@ -40,6 +43,7 @@ async def test_regenerate_moc_creates_file(vault: Path) -> None:
     ):
         ms.vault_path = str(vault)
         from src.vault.moc import regenerate_moc
+
         result = await regenerate_moc("person")
 
     assert result == "_meta/MOC_People.md"
@@ -55,6 +59,7 @@ async def test_regenerate_moc_unsupported_type(vault: Path) -> None:
     with patch("src.vault.moc.settings") as ms:
         ms.vault_path = str(vault)
         from src.vault.moc import regenerate_moc
+
         result = await regenerate_moc("task")
 
     assert result is None

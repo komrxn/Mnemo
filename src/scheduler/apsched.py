@@ -3,8 +3,8 @@ from __future__ import annotations
 from urllib.parse import urlparse
 
 import structlog
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.jobstores.redis import RedisJobStore
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from src.config import settings
 

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-import pytest
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from src.agent.linker import LinkBatch, LinkProposal
 
@@ -11,6 +12,7 @@ from src.agent.linker import LinkBatch, LinkProposal
 def vault(tmp_path: Path) -> Path:
     (tmp_path / "40_Projects").mkdir(parents=True)
     (tmp_path / "50_Tasks").mkdir(parents=True)
+    (tmp_path / "20_People").mkdir(parents=True)
     (tmp_path / "40_Projects" / "legai.md").write_text(
         "---\ntype: project\naliases:\n- LegAI\n---\n\nAI startup project.\n",
         encoding="utf-8",
@@ -19,18 +21,24 @@ def vault(tmp_path: Path) -> Path:
         "---\ntype: task\naliases: []\n---\n\nDeploy to prod.\n",
         encoding="utf-8",
     )
+    (tmp_path / "20_People" / "anna.md").write_text(
+        "---\ntype: person\naliases: []\n---\n\nAnna from LegAI team.\n",
+        encoding="utf-8",
+    )
     return tmp_path
 
 
 @pytest.mark.asyncio
 async def test_propose_links_returns_mock_result(vault: Path) -> None:
-    mock_parsed = LinkBatch(links=[
-        LinkProposal(
-            from_path="50_Tasks/deploy.md",
-            to_path="40_Projects/legai.md",
-            relation="for_project",
-        )
-    ])
+    mock_parsed = LinkBatch(
+        links=[
+            LinkProposal(
+                from_path="50_Tasks/deploy.md",
+                to_path="40_Projects/legai.md",
+                relation="for_project",
+            )
+        ]
+    )
     mock_response = MagicMock()
     mock_response.choices[0].message.parsed = mock_parsed
 
@@ -42,9 +50,10 @@ async def test_propose_links_returns_mock_result(vault: Path) -> None:
         patch("src.agent.linker.settings") as ms,
     ):
         ms.vault_path = str(vault)
-        ms.openai_model_main = "gpt-4o"
+        ms.openai_model_main = "gpt-5.4"
 
         from src.agent.linker import propose_links
+
         proposals = await propose_links(
             ["50_Tasks/deploy.md", "40_Projects/legai.md"],
             "_meta/owner.md",
@@ -70,6 +79,7 @@ async def test_apply_links_calls_add_typed_link(vault: Path) -> None:
         mock_atl.return_value = True
 
         from src.agent.linker import apply_links
+
         count = await apply_links(links, "ses_test")
 
     mock_atl.assert_called_once_with(

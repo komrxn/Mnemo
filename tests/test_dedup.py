@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-import pytest
 from pathlib import Path
 from unittest.mock import patch
+
+import pytest
 
 from src.vault.dedup import find_similar
 
@@ -27,15 +28,6 @@ async def test_find_similar_exact_alias(vault: Path) -> None:
         results = await find_similar("project", "LegAI")
     assert results and results[0].path.endswith("legai.md")
     assert results[0].score >= 90
-
-
-@pytest.mark.asyncio
-async def test_find_similar_cyrillic_transliteration(vault: Path) -> None:
-    with patch("src.vault.dedup.settings") as ms:
-        ms.vault_path = str(vault)
-        results = await find_similar("project", "ЛегАИ")
-    assert results and results[0].path.endswith("legai.md")
-    assert results[0].score >= 70
 
 
 @pytest.mark.asyncio

@@ -1,13 +1,15 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel
 from slugify import slugify
 
-NoteType = Literal["task", "thought", "person", "job", "project", "memory", "theme", "daily", "inbox"]
+NoteType = Literal[
+    "task", "thought", "person", "job", "project", "memory", "theme", "daily", "inbox"
+]
 NoteStatus = Literal["open", "done", "archived"]
 
 # forward_field -> (inverse_field_on_target, is_list_on_target)
@@ -22,11 +24,40 @@ RELATION_INVERSE: dict[str, tuple[str, bool]] = {
 }
 
 LINK_FIELDS: list[str] = [
-    "owner", "works_at", "for_job", "for_project", "themes",
-    "about_person", "related_people", "parent_theme",
-    "employs", "projects", "tasks", "examples",
-    "mentions", "involved_in", "sub_themes", "memories", "thoughts",
+    "owner",
+    "works_at",
+    "for_job",
+    "for_project",
+    "themes",
+    "about_person",
+    "related_people",
+    "parent_theme",
+    "employs",
+    "projects",
+    "tasks",
+    "examples",
+    "mentions",
+    "involved_in",
+    "sub_themes",
+    "memories",
+    "thoughts",
 ]
+
+# Прямые типизированные связи — single source of truth для конвертера LightRAG.
+# Обратные поля (employs, projects, tasks, ...) не включаются — это денормализация
+# для Obsidian, не для графа.
+FORWARD_RELATIONS: frozenset[str] = frozenset(
+    {
+        "owner",
+        "works_at",
+        "for_job",
+        "for_project",
+        "themes",
+        "about_person",
+        "related_people",
+        "parent_theme",
+    }
+)
 
 
 def get_inverse_field(forward: str, source_type: str) -> str | None:
@@ -54,8 +85,8 @@ TYPE_FOLDERS: dict[str, str] = {
 
 class Frontmatter(BaseModel):
     type: NoteType = "inbox"
-    created: datetime = datetime.now(timezone.utc)
-    updated: datetime = datetime.now(timezone.utc)
+    created: datetime = datetime.now(UTC)
+    updated: datetime = datetime.now(UTC)
     tags: list[str] = []
     status: NoteStatus | None = None
     due: str | None = None
@@ -88,13 +119,19 @@ def serialize(fm: dict[str, Any], body: str) -> str:
 
 
 def make_note_path(type_: str, title: str) -> str:
-    """Generate vault-relative path for a note given its type and title."""
+    """Generate vault-relative path for a note given its type and title.
+
+    Uses Unicode-aware slugify so Cyrillic titles stay readable in Obsidian
+    file browser ("аня-петрова.md" vs the transliterated "anya-petrova.md").
+    """
     folder = TYPE_FOLDERS.get(type_, "00_Inbox")
     if type_ == "daily":
         from zoneinfo import ZoneInfo
+
         from src.config import settings
+
         tz = ZoneInfo(settings.tz)
         date = datetime.now(tz).strftime("%Y-%m-%d")
         return f"{folder}/{date}.md"
-    slug = slugify(title, allow_unicode=False, separator="-")
+    slug = slugify(title, allow_unicode=True, separator="-", lowercase=True)
     return f"{folder}/{slug}.md"

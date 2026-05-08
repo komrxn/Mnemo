@@ -26,6 +26,7 @@ async def cmd_start(message: Message) -> None:
     # First run: initiate onboarding
     redis = await session_mgr.get_redis()
     import orjson
+
     await redis.set(
         session_mgr.key_onboarding(user_id),
         orjson.dumps({"state": "step_bot_name"}),
@@ -68,6 +69,7 @@ async def cmd_save(message: Message) -> None:
 @router.message(Command("undo"))
 async def cmd_undo(message: Message) -> None:
     from pathlib import Path
+
     from src.config import settings
     from src.vault import git_ops
 

@@ -107,6 +107,37 @@ vault/
 
 ---
 
+## Connecter à des Outils IA de Développement
+
+Mnemo expose son graphe de connaissances comme serveur MCP, permettant à **Claude Code, Cursor, Cline** et autres outils compatibles de consulter votre second cerveau pendant que vous codez.
+
+Le paquet n'est pas encore sur PyPI — installez depuis les sources :
+
+```bash
+git clone https://github.com/desimpkins/daniel-lightrag-mcp.git
+cd daniel-lightrag-mcp && pip install -e .
+```
+
+Ajoutez ceci dans `~/.claude/claude_mcp_config.json` pour Claude Code :
+
+```json
+{
+  "mcpServers": {
+    "mnemo-brain": {
+      "command": "daniel-lightrag-mcp",
+      "env": {
+        "LIGHTRAG_BASE_URL": "http://localhost:9621",
+        "LIGHTRAG_API_KEY": "<contenu de secrets/lightrag_api_key.txt>"
+      }
+    }
+  }
+}
+```
+
+Guide complet : [README anglais](../README.md#connect-your-brain-to-ai-coding-tools)
+
+---
+
 ## Sécurité et Confidentialité
 
 - **Conception mono-utilisateur** — liste blanche `ALLOWED_USER_IDS` appliquée au niveau du middleware

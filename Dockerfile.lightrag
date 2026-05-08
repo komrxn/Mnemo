@@ -1,0 +1,16 @@
+FROM python:3.12-slim
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir 'lightrag-hku[api]>=1.4'
+
+WORKDIR /data
+
+COPY scripts/lightrag_entrypoint.sh /usr/local/bin/lightrag_entrypoint.sh
+RUN chmod +x /usr/local/bin/lightrag_entrypoint.sh
+
+EXPOSE 9621
+
+ENTRYPOINT ["/usr/local/bin/lightrag_entrypoint.sh"]

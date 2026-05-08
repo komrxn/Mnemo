@@ -19,7 +19,9 @@ def _check(*args: str) -> None:
 def _ssh_env() -> dict[str, str]:
     """Build env with GIT_SSH_COMMAND pointing to our deploy key."""
     import shutil
+
     from src.config import settings
+
     env = os.environ.copy()
     key = settings.vault_git_ssh_key
     if key and Path(key).exists():
@@ -36,7 +38,8 @@ async def _run(cwd: Path, *args: str, use_ssh: bool = False) -> str:
     _check(*args)
     env = _ssh_env() if use_ssh else None
     proc = await asyncio.create_subprocess_exec(
-        "git", *args,
+        "git",
+        *args,
         cwd=cwd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -94,6 +97,7 @@ async def stage_and_commit(vault_path: Path, rel_paths: list[str], message: str)
 
 async def push(vault_path: Path) -> None:
     from src.config import settings
+
     if not settings.vault_git_remote:
         logger.info("no remote configured, skipping push")
         return
@@ -120,6 +124,7 @@ async def revert_head(vault_path: Path) -> str:
 async def pull_rebase(vault_path: Path) -> bool:
     """Pull with rebase. Returns True on success, False on conflict."""
     from src.config import settings
+
     if not settings.vault_git_remote:
         return True
     try:
