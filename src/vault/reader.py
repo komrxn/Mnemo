@@ -4,6 +4,7 @@ from pathlib import Path
 
 from src.config import settings
 from src.vault.frontmatter import Frontmatter, Note, parse
+from src.vault.paths import VaultPathError, resolve_inside_vault
 
 
 def _vault() -> Path:
@@ -11,11 +12,15 @@ def _vault() -> Path:
 
 
 def note_exists(rel_path: str) -> bool:
-    return (_vault() / rel_path).exists()
+    """Safe existence check — returns False on path traversal."""
+    try:
+        return resolve_inside_vault(rel_path).exists()
+    except VaultPathError:
+        return False
 
 
 def read_note(rel_path: str) -> Note:
-    path = _vault() / rel_path
+    path = resolve_inside_vault(rel_path)
     raw = path.read_text(encoding="utf-8")
     fm_dict, body = parse(raw)
     try:

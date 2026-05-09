@@ -27,14 +27,16 @@ async def test_add_typed_link_creates_forward_and_inverse(vault: Path) -> None:
         committed.append((files, msg))
         return "abc123"
 
-    # Patch settings in linking AND reader (reader.note_exists uses its own settings ref)
+    # Patch settings in linking, reader AND paths (note_exists goes through paths.resolve)
     with (
         patch("src.vault.linking.settings") as ms_link,
         patch("src.vault.reader.settings") as ms_read,
+        patch("src.vault.paths.settings") as ms_paths,
         patch("src.vault.linking.git_ops.stage_and_commit", side_effect=fake_commit),
     ):
         ms_link.vault_path = str(vault)
         ms_read.vault_path = str(vault)
+        ms_paths.vault_path = str(vault)
 
         from src.vault.linking import add_typed_link
 
@@ -72,10 +74,12 @@ async def test_add_typed_link_idempotent(vault: Path) -> None:
     with (
         patch("src.vault.linking.settings") as ms_link,
         patch("src.vault.reader.settings") as ms_read,
+        patch("src.vault.paths.settings") as ms_paths,
         patch("src.vault.linking.git_ops.stage_and_commit", side_effect=fake_commit),
     ):
         ms_link.vault_path = str(vault)
         ms_read.vault_path = str(vault)
+        ms_paths.vault_path = str(vault)
 
         from src.vault.linking import add_typed_link
 

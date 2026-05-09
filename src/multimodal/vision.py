@@ -22,9 +22,16 @@ _MIME_MAP = {
 
 
 async def describe(image_path: Path) -> str:
-    """Get GPT-vision description + OCR of an image."""
+    """Get GPT-vision description + OCR of an image.
+
+    File read is offloaded to a thread to avoid blocking the event loop on
+    large images.
+    """
+    import asyncio
+
     client = get_client()
-    data = base64.standard_b64encode(image_path.read_bytes()).decode()
+    raw = await asyncio.to_thread(image_path.read_bytes)
+    data = base64.standard_b64encode(raw).decode()
     mime = _MIME_MAP.get(image_path.suffix.lstrip(".").lower(), "image/jpeg")
 
     response = await client.chat.completions.create(
@@ -41,6 +48,6 @@ async def describe(image_path: Path) -> str:
                 ],
             }
         ],
-        max_tokens=1500,
+        max_completion_tokens=1500,
     )
     return response.choices[0].message.content or ""

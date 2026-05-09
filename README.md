@@ -1,18 +1,17 @@
 <div align="center">
 
-# 🧠 Mnemo v2.0
+# 🧠 Mnemo
 
-### Your second brain. In Telegram. On your own infra.
+### Your second brain. In Telegram. On your own infrastructure.
 
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-3776AB.svg?style=flat&logo=python&logoColor=white)](https://www.python.org/)
 [![Docker](https://img.shields.io/badge/docker-compose-2496ED.svg?style=flat&logo=docker&logoColor=white)](https://docs.docker.com/compose/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg?style=flat)](LICENSE)
 [![OpenAI](https://img.shields.io/badge/OpenAI-GPT--5.4-412991.svg?style=flat&logo=openai&logoColor=white)](https://platform.openai.com)
 [![Obsidian](https://img.shields.io/badge/Obsidian-vault-7C3AED.svg?style=flat&logo=obsidian&logoColor=white)](https://obsidian.md)
+[![PyPI mnemo-brain-mcp](https://img.shields.io/pypi/v/mnemo-brain-mcp?label=mnemo-brain-mcp&color=blue)](https://pypi.org/project/mnemo-brain-mcp/)
 
-**🇬🇧 English** · [🇨🇳 中文](docs/README_zh.md) · [🇪🇸 Español](docs/README_es.md) · [🇵🇹 Português](docs/README_pt.md) · [🇫🇷 Français](docs/README_fr.md)
-
-> Translations are kept in step with major releases. For the latest v2.0 changes, this English README is canonical.
+**Talk to it. Forget nothing. Code with it.**
 
 </div>
 
@@ -20,84 +19,115 @@
 
 ## ✨ What is Mnemo?
 
-Mnemo is a **self-hosted AI assistant in Telegram** that turns every conversation you have with it into a **structured knowledge graph** stored as plain Markdown in your own Obsidian vault. Notes are linked, deduplicated, and indexed for semantic + graph search — automatically.
+Mnemo is a **self-hosted AI assistant in Telegram** that turns every conversation into a **structured knowledge graph** — stored as plain Markdown in your own Obsidian vault, indexed in a typed graph database, and exposed as an MCP server so **Claude Code** / **Cursor** / **Cline** can query your second brain while you code.
 
 ```
-🗣️  You: "Had a call with Anna from LegAI today.
-         We agreed to ship the Mnemo MVP by June 15.
-         She'll handle the architecture."
+🗣️  You:    "Had a call with Anna from LegAI today.
+            We agreed to ship the MVP by June 15.
+            She'll handle the architecture."
 
-🤖  Mnemo: ✓ noted.
-         Created: Anna (👤 People), LegAI (🏢 Jobs),
-                  Ship MVP (✅ Tasks, due 2026-06-15).
-         Linked: Anna —[works_at]→ LegAI
-                 Anna —[for_project]→ Mnemo
-                 Task —[for_project]→ Mnemo
+🤖  Mnemo:  ✓ noted.
+            Created: Anna (👤 People), LegAI (🏢 Jobs),
+                    Ship MVP (✅ Tasks, due 2026-06-15).
+            Linked:  Anna —[works_at]→ LegAI
+                    Task —[for_job]→ LegAI
+                    Anna —[related_people]← MVP
+
+   …a year later, in Claude Code:
+   
+🤔  You:    "What did I plan for LegAI before?"
+🤖  Claude: "You shipped the MVP with Anna by June 15. She handled
+            architecture; you were focused on the API layer."
 ```
 
-It runs entirely on **your own machine** (Docker), syncs to **your own GitHub repo**, and exposes its graph as an **MCP server** so Claude Code, Cursor, Cline, and any MCP-compatible AI coding tool can read your second brain while helping you code.
+It runs **entirely on your own machine** (Docker), syncs to your own GitHub repo (optional), and never leaks your second brain to anyone. No cloud DB, no analytics, no telemetry.
 
 ---
 
-## 🚀 What's new in v2.0
+## 🎯 Why Mnemo
 
-> v2.0 is a quality + cost rewrite of the graph layer. Same UX, much better backend.
+### The problem
+- 💭 You forget important things you told ChatGPT 3 months ago
+- 📝 Note-taking apps don't auto-link or surface the right thing at the right time
+- 🤖 AI coding assistants don't know your context (people, projects, decisions)
+- 🔒 You don't trust cloud providers with your second brain
 
-| Change | Before (v1) | After (v2) |
-| --- | --- | --- |
-| 🔥 **Custom KG injection** | LightRAG ran LLM extraction on every note | Typed wikilinks become graph edges directly — **no LLM extraction** |
-| 💰 **Cost per note** | ~$0.01–0.02 | ~$0.0001 (embeddings only) — **~100× cheaper** |
-| 🎯 **Graph source of truth** | Two graphs (Obsidian + LightRAG) drifted apart | One graph: `frontmatter == LightRAG` |
-| 🔗 **MCP bridge** | not exposed | MCP server on `localhost:9621` for Claude Code / Cursor / Cline |
-| ✏️ **Rename / delete sync** | orphan entities in graph | hooks delete old entity + reindex new path |
-| 🔐 **API auth** | port was open | `X-API-Key` enforced via entrypoint script |
-| 🩺 **Healthchecks** | none | Docker `healthcheck:` for all 3 services |
-
-Want the long version? See [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) §G–H.
+### The Mnemo answer
+- 💬 You just **talk** in Telegram. Voice, photo, text — Mnemo turns it into structure
+- 🕸️ Notes are **typed-linked** automatically: `task —[for_project]→ project —[for_job]→ job —[owner]→ you`
+- 🧠 Auto-recall: every message you send pulls relevant context from your past **automatically**
+- 🔗 MCP server exposes your brain to Claude Code / Cursor / Cline — they finally know who Anna is and what Mnemo MVP means
+- 🏠 100% self-hosted: your vault is your git repo, your graph is on your disk
 
 ---
 
-## 🎯 Features
+## 🚀 What's inside
 
 <table>
 <tr>
-<td width="50%">
+<td width="50%" valign="top">
 
 ### 🧠 Memory
-- **Eternal memory** — every Telegram session extracted to typed Obsidian notes (frontmatter + tags + wikilinks)
-- **Topic-shift detection** — when you change subjects, the previous session auto-saves
-- **Smart linker** — LLM post-pass proposes typed relations (`for_project`, `works_at`, `about_person`, …)
-- **Bidirectional links** — `for_project` on a task auto-adds `tasks: [...]` on the project
-- **Deduplication** — fuzzy matcher resolves "LegAI" / "ЛегАИ" / "legai" to one entity
+- **Eternal memory.** Every Telegram session → typed Markdown notes
+- **Multi-turn onboarding.** Bot asks you clarifying questions until your initial brain skeleton makes sense
+- **Auto-recall middleware.** Every message you send triggers a semantic LightRAG retrieval — bot always sees relevant past context
+- **Owner.md auto-refresh.** When you announce a new job / life event / theme, the «who am I» card is regenerated by LLM from current vault state
+- **Topic-shift detector.** Subject changes auto-close the previous session
 
 </td>
-<td width="50%">
+<td width="50%" valign="top">
 
-### 🌐 Graph & search
-- **Custom KG injection** — your typed `[[wikilinks]]` become graph edges, zero LLM extraction
-- **Single source of truth** — Obsidian frontmatter == LightRAG graph
-- **3072-dim embeddings** — `text-embedding-3-large` for chunks / entities / relationships
-- **Hybrid query** — semantic + graph traversal (`local` / `global` / `mix` modes)
-- **Maps of Content** — auto-regenerated `MOC_People.md`, `MOC_Projects.md`, …
+### 🔗 Typed graph
+- **9 entity types, 8 typed relations.** Every wikilink has meaning
+- **Owner-anchored.** All entities except `person` link to `_meta/owner` — your brain has a center
+- **Bidirectional inverses.** `person.works_at = job` automatically generates `job.employs = [person]`
+- **Custom KG injection.** Your typed wikilinks become graph edges directly — **zero LLM-extraction overhead**, ~$0.0001 per note (embeddings only)
+- **READ before WRITE.** Agent must search vault for similar entities before creating new ones — no duplicates ever
 
 </td>
 </tr>
 <tr>
-<td>
+<td valign="top">
 
-### 🎙️ Multimodal
-- **Text · Voice · Photo** — Whisper-1 transcription, GPT-5.4 Vision
-- **Atomic attachment writes** — `tmp + os.replace`, no half-files
-- **Custom personality** — name your assistant + 4 communication styles (friendly / direct / sarcastic / mentor)
+### 🛡️ Quality gates
+- **Strict pydantic Entity contract.** `body: str` + `links: list[str]` are gone. Markdown can't sneak into structural fields
+- **Owner-anchor enforced.** `model_validator` auto-attaches `owner: [[_meta/owner]]` to every non-person entity — agent physically can't create a job/project/theme without graph-anchoring
+- **Vault-language directive.** One language per vault, picked at onboarding, injected into all entity-creating prompts
+- **Genre rules per type.** `memory` ≠ biography; goals → `thought` (not `theme`); single-word common themes blocked
+- **Two-gate dedup.** rapidfuzz string-match catches typos; LightRAG embedding-search catches synonyms (`AI` ↔ `искусственный интеллект`)
+- **Path-traversal guard.** All vault paths go through `resolve_inside_vault`
+- **Reply fingerprint.** Duplicate sends get suppressed; replies > 4000 chars truncated before send
+- **Graceful failures.** Git push fails → vault still committed locally. Tool error → agent gets `tool-error: TYPE` (no API key leak)
 
 </td>
-<td>
+<td valign="top">
+
+### 🔌 Integrations
+- **MCP server** at `127.0.0.1:9621` for Claude Code / Cursor / Cline
+- **`mnemo-brain-mcp`** [on PyPI](https://pypi.org/project/mnemo-brain-mcp/) — `pip install mnemo-brain-mcp`, done
+- **Vault git-sync** with conflict alerts to Telegram (no auto-resolve)
+- **Bidirectional sync.** Edit notes manually in Obsidian → bot picks up via periodic git-pull → graph reindexes
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+### 🎙️ Multimodal
+- **Text · Voice · Photo.** Whisper-1 transcription, GPT-5.4 Vision OCR
+- **Coalesced input.** Type 3 messages in 2 seconds — bot reads them as one
+- **Custom personality.** Name your assistant + 4 communication styles
+- **URL fetch tool.** Drop a portfolio link — bot reads the page
+
+</td>
+<td valign="top">
 
 ### ⏰ Proactivity & safety
-- **APScheduler crons** — morning digest, weekly reflection, stale project nudges
-- **Git-backed vault** — every change is a commit, `/undo` reverts the last
-- **Single-user whitelist** — middleware-enforced, all other users silently dropped
-- **Destructive ops require confirmation** — inline Telegram buttons via Redis pub/sub
+- **APScheduler crons.** Morning digest, weekly reflection, stale project nudges
+- **Git-backed vault.** Every change is a commit, `/undo` reverts the last (safe-list refuses to undo `_meta/owner.md` / `_meta/portrait.md`)
+- **Single-user whitelist.** All other Telegram users dropped silently in middleware
+- **Destructive ops** require inline confirmation via Redis pub/sub
+- **`/start` is idempotent.** Won't wipe an onboarded brain — explicit file deletion needed
 
 </td>
 </tr>
@@ -112,22 +142,31 @@ Want the long version? See [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) §
 ```mermaid
 flowchart LR
     TG[📱 Telegram<br/>text · voice · photo]
-    BOT[🤖 aiogram bot<br/>handlers + middleware]
-    AGENT[🧠 agent loop<br/>GPT-5.4 + function calling]
-    TOOLS[🛠️ tools<br/>21 tools]
-    SESS[(Redis<br/>sessions)]
-    VAULT[(📓 Obsidian Vault<br/>Markdown + git)]
-    LRAG[(🌐 LightRAG<br/>graph + vectors)]
-    MCP[🔌 MCP bridge<br/>localhost:9621]
-    AI[💻 Claude Code<br/>Cursor · Cline · …]
+    COAL[Coalesce<br/>1.5s debounce]
+    BOT[🤖 aiogram bot<br/>auto-onboarding gate]
+    RECALL[🧠 Auto-recall<br/>LightRAG context]
+    AGENT[🤖 Agent loop<br/>GPT-5.4 + tools]
+    SESS[(Redis<br/>sessions + locks)]
+    EXTRACT[📦 Extractor<br/>structured outputs]
+    PIPE[✏️ write_pipeline<br/>strict Entity contract]
+    VAULT[(📓 Obsidian Vault<br/>typed Markdown + git)]
+    LRAG[(🌐 LightRAG<br/>graph + 3072-dim embeddings)]
+    OWNER[👤 Owner refresh<br/>auto on key changes]
+    MCP[🔌 mnemo-brain-mcp<br/>localhost:9621]
+    AI[💻 Claude Code<br/>Cursor · Cline]
 
-    TG --> BOT --> AGENT
-    AGENT <--> TOOLS
-    BOT <--> SESS
-    TOOLS --> VAULT
-    VAULT -- custom KG injection --> LRAG
-    AGENT --> LRAG
+    TG --> COAL --> BOT
+    BOT --> RECALL
+    RECALL --> AGENT
+    AGENT <--> SESS
+    AGENT -->|/save or 15min idle| EXTRACT
+    EXTRACT --> PIPE
+    PIPE --> VAULT
+    PIPE -->|enqueue| LRAG
+    VAULT --> OWNER
+    OWNER --> VAULT
     LRAG --> MCP --> AI
+    LRAG -.semantic recall.-> RECALL
 ```
 
 ### Container topology (Docker Compose)
@@ -136,22 +175,22 @@ flowchart LR
 flowchart TB
     subgraph host[🖥️ Your machine]
         subgraph docker[Docker Compose]
-            BOT[bot<br/>aiogram + agent]
-            LR[lightrag-api<br/>port 9621]
-            RD[(redis<br/>sessions + scheduler)]
+            BOT[bot<br/>aiogram + agent + scheduler]
+            LR[lightrag-api<br/>:9621 — read-only HTTP]
+            RD[(redis<br/>sessions + jobstore)]
         end
-        subgraph data[./data]
-            VV[vault/<br/>Markdown notes + git]
+        subgraph data[./data — gitignored]
+            VV[vault/<br/>Markdown + git]
             LL[lightrag/<br/>graphml + vdb_*.json]
-            RR[redis/]
+            RR[redis/<br/>AOF]
         end
-        subgraph secrets[./secrets]
+        subgraph secrets[./secrets — gitignored]
             SK[lightrag_api_key.txt]
             VK[vault_ssh_key]
         end
     end
 
-    BOT --> RD
+    BOT <--> RD
     BOT --> VV
     BOT --> LL
     LR --> LL
@@ -159,7 +198,7 @@ flowchart TB
     BOT -.SSH push.-> VK
 ```
 
-**Stack:** Python 3.12 · uv · aiogram 3 · OpenAI SDK ≥1.57 · Redis 7 · APScheduler 3 · LightRAG (embedded + HTTP) · rapidfuzz · ripgrep · structlog · pydantic v2 · Docker Compose
+**Stack:** Python 3.12 · uv · aiogram 3 · OpenAI SDK ≥1.57 · Redis 7 · APScheduler 3 · LightRAG (embedded + HTTP) · pydantic v2 · rapidfuzz · ripgrep · structlog · BeautifulSoup4 · Docker Compose
 
 ---
 
@@ -174,15 +213,13 @@ flowchart TB
 | 🔑 An OpenAI API key | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) |
 | 🆔 Your own Telegram user ID | message [@userinfobot](https://t.me/userinfobot) |
 
-### 2️⃣ Clone + bootstrap
+### 2️⃣ Bootstrap
 
 ```bash
 git clone https://github.com/komrxn/Khusayinbek_brain.git mnemo
 cd mnemo
-./setup.sh
+./setup.sh                  # idempotent — creates secrets/, data/, api key
 ```
-
-`setup.sh` is **idempotent** — it creates `secrets/`, `data/{vault,lightrag,redis}/`, generates a fresh `secrets/lightrag_api_key.txt`, and copies `.env.example → .env` if needed.
 
 ### 3️⃣ Fill `.env`
 
@@ -192,10 +229,11 @@ Three values are required, the rest have safe defaults:
 TELEGRAM_BOT_TOKEN=123456:AA...your_token...
 OPENAI_API_KEY=sk-proj-...
 ALLOWED_USER_IDS=123456789
-TZ=Europe/London          # your timezone — used for daily notes & scheduling
+TZ=Europe/London            # your timezone
 ```
 
-> 📦 The full list with comments lives in [`.env.example`](.env.example). Notable extras: `OPENAI_MODEL_MAIN` (default `gpt-5.4`), `SESSION_IDLE_TIMEOUT_MIN` (default `15`), `SENTRY_DSN`.
+> 📦 Full list with comments lives in [`.env.example`](.env.example).
+> Notable: `OPENAI_MODEL_MAIN` (default `gpt-5.4`), `SESSION_IDLE_TIMEOUT_MIN` (15), `VAULT_PULL_INTERVAL_MIN` (2), `SENTRY_DSN`.
 
 ### 4️⃣ (Optional) Vault git sync
 
@@ -204,12 +242,11 @@ Skip if you don't care about pushing your vault to GitHub.
 ```bash
 ssh-keygen -t ed25519 -C "mnemo-vault" -f secrets/vault_ssh_key -N ""
 chmod 600 secrets/vault_ssh_key
-# → add secrets/vault_ssh_key.pub as a Deploy key on your private vault repo
+# → add secrets/vault_ssh_key.pub as a Deploy key on a private GitHub repo
 #   (Settings → Deploy keys → Add → ☑️ Allow write access)
 ```
 
 Then in `.env`:
-
 ```env
 VAULT_GIT_REMOTE=git@github.com:yourname/your-vault.git
 ```
@@ -233,13 +270,15 @@ docker compose ps
 
 ### 6️⃣ First contact in Telegram
 
-Open your bot in Telegram and send `/start`. The onboarding is multi-step:
+Open your bot in Telegram. **Just say hi** — auto-onboarding kicks in (no need for `/start`):
 
-1. **Pick a name** for your assistant (`Max`, `Mia`, `Jarvis`, …)
+1. **Pick a name** for your assistant (`Max`, `Mia`, `Mnemo`, …)
 2. **Pick a style** — friendly / direct / sarcastic / mentor
 3. **Tell the bot your own name**
-4. **Send a free-form portrait** — projects, people, goals, anything. Voice messages work.
-5. **Confirm** → vault is initialized, `_meta/owner.md` + `_meta/portrait.md` are committed.
+4. **Pick a vault language** — `Russian` / `English` / `Mixed`. All canonical names, theme names, and entity titles will be created in this language consistently — no `cybersecurity.md` mixed with `образование.md`
+5. **Send a free-form portrait** — projects, people, goals, anything. Voice messages work
+6. Bot asks a few clarifying questions, then **silently builds your brain skeleton**
+7. Final message: «Записал. Закрепил [your name]'s current job, partner, key projects, …»
 
 You can now message it anything. Try:
 
@@ -255,7 +294,7 @@ If you set up vault git sync:
 git clone git@github.com:yourname/your-vault.git ~/MyVault
 ```
 
-Open `~/MyVault` as an [Obsidian](https://obsidian.md) vault. Install the **Obsidian Git** community plugin → set auto-pull every 5 min. Now your vault is a living, browsable graph.
+Open `~/MyVault` as an [Obsidian](https://obsidian.md) vault. Install **Obsidian Git** community plugin → set auto-pull every 5 min. Now your vault is a living, browsable graph.
 
 ---
 
@@ -264,60 +303,72 @@ Open `~/MyVault` as an [Obsidian](https://obsidian.md) vault. Install the **Obsi
 ```
 vault/
 ├── _meta/
-│   ├── owner.md             ⭐ you — central anchor of the graph
-│   ├── portrait.md          your onboarding portrait (raw)
-│   ├── ontology.md          auto-generated entity types
-│   ├── scheduled_tasks.md   currently active cron tasks
-│   ├── MOC_People.md        🗺️  Map of Content — all people
-│   ├── MOC_Projects.md      🗺️  all projects
-│   ├── MOC_Jobs.md          🗺️  all jobs
-│   └── MOC_Themes.md        🗺️  all themes
-├── 00_Inbox/                unprocessed captures
-├── 10_Daily/                daily session notes
-├── 20_People/               👤 people in your life
-├── 30_Jobs/                 🏢 companies, organizations
-├── 40_Projects/             🚀 work & personal projects
-├── 50_Tasks/                ✅ tasks with deadlines
-├── 60_Thoughts/             💭 ideas, observations
-├── 70_Memories/             🎞️  personal facts, past events
-├── 80_Themes/               🏷️  recurring themes
-└── 90_Attachments/          🎧🖼️  voice messages, images
+│   ├── owner.md                ⭐ you — central anchor of the graph
+│   ├── portrait.md             your raw onboarding portrait (archived)
+│   ├── scheduled_tasks.md      live cron tasks
+│   ├── MOC_People.md           🗺️  Map of Content — all people
+│   ├── MOC_Projects.md         🗺️  all projects
+│   ├── MOC_Jobs.md             🗺️  all jobs
+│   └── MOC_Themes.md           🗺️  all themes
+├── 00_Inbox/                   unprocessed captures
+├── 10_Daily/                   daily session notes
+├── 20_People/                  👤 people in your life
+├── 30_Jobs/                    🏢 companies, organizations
+├── 40_Projects/                🚀 work & personal projects
+├── 50_Tasks/                   ✅ tasks with deadlines
+├── 60_Thoughts/                💭 ideas, observations
+├── 70_Memories/                🎞️ personal facts, past events
+├── 80_Themes/                  🏷️ recurring themes
+└── 90_Attachments/             🎧🖼️ voice messages, images
 ```
 
-Every entity note has YAML frontmatter with **typed link fields** that become graph edges:
-
-```yaml
----
-type: task
-status: open
-due: 2026-06-15
-for_project: "[[40_Projects/mnemo]]"   # → graph edge: task -[for_project]-> project
-owner: "[[_meta/owner]]"               # → graph edge: task -[owner]-> owner
-aliases: ["ship mvp", "launch v1"]     # for fuzzy dedup
----
-
-# Ship Mnemo MVP
-
-- запустить на одном пользователе к 15 июня
-- основная фича: голос → vault → граф
-```
-
-### Forward relations (= graph edges)
+### Forward relations (graph edges)
 
 These 8 frontmatter fields become typed edges in the LightRAG graph:
 
 | Field | From → To | Example |
 | --- | --- | --- |
-| `owner` | any → `_meta/owner` | "this task is mine" |
+| `owner` | any (except person) → `_meta/owner` | "this task is mine" |
 | `works_at` | person → job | Anna → LegAI |
 | `for_job` | task / project → job | task is for LegAI |
-| `for_project` | task / thought → project | task is for Mnemo |
-| `themes` | project / thought → theme | Mnemo themed AI |
+| `for_project` | task / thought / memory → project | task is for Mnemo |
+| `themes` | project / thought / memory → theme | Mnemo themed `AI` |
 | `about_person` | thought / memory → person | thought about Anna |
 | `related_people` | any → person(s) | involves [Anna, Bob] |
 | `parent_theme` | theme → theme | "GenAI" → "AI" |
 
-> Inverse fields (`employs`, `tasks`, `projects`, …) are still rendered in the `## Связи` section for Obsidian readability, but they're **denormalized** — the graph only needs forward edges.
+Inverse fields (`employs`, `tasks`, `projects`, `mentions`, …) are auto-generated by `linking.add_typed_link` and rendered in the `## Связи` section for Obsidian readability.
+
+### Example note
+
+```yaml
+---
+type: project
+status: in-development
+aliases: ["MVP", "первый запуск"]
+owner: "[[_meta/owner]]"
+for_job: "[[30_Jobs/legai]]"
+themes:
+  - "[[80_Themes/ai]]"
+related_people:
+  - "[[20_People/anna]]"
+---
+
+AI-юрист на узбекском праве; делается с Аней на базе LegAI; в продакшене с июня.
+
+## Факты
+
+- Дедлайн MVP: 15 июня 2026
+- 3000+ пользователей в beta
+- Stack: GPT-5.4 + RAG over uzbek law corpus
+
+## Связи
+
+- **owner**: [[_meta/owner]]
+- **for_job**: [[30_Jobs/legai]]
+- **themes**: [[80_Themes/ai]]
+- **related_people**: [[20_People/anna]]
+```
 
 ---
 
@@ -325,64 +376,40 @@ These 8 frontmatter fields become typed edges in the LightRAG graph:
 
 | Command | What it does |
 | --- | --- |
-| `/start` | Onboarding (first run) or status check |
+| `/start` | Initiates onboarding (or says "жив" if already onboarded) |
 | `/save` | Force-close current session and extract notes immediately |
-| `/undo` | Revert the last vault commit |
+| `/undo` | Revert the last vault commit (safe-list: refuses to undo onboarding files) |
 
 Sessions also auto-close after `SESSION_IDLE_TIMEOUT_MIN` minutes of inactivity (default 15).
 
----
-
-## 🔧 Configuration
-
-All settings go in `.env`. See [`.env.example`](.env.example) for the full list.
-
-| Variable | Required | Default | What |
-| --- | :-: | --- | --- |
-| `TELEGRAM_BOT_TOKEN` | ✅ | — | Bot token from @BotFather |
-| `OPENAI_API_KEY` | ✅ | — | OpenAI API key |
-| `ALLOWED_USER_IDS` | ✅ | — | Comma-separated Telegram user IDs |
-| `TZ` |  | `UTC` | Timezone (see [tz database](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones)) |
-| `OPENAI_MODEL_MAIN` |  | `gpt-5.4` | Main model (chat, extraction, linking) |
-| `OPENAI_MODEL_FAST` |  | `gpt-5.4-mini` | Fast model (topic shift, compact tasks) |
-| `OPENAI_MODEL_VISION` |  | `gpt-5.4` | Vision model for photo input |
-| `OPENAI_EMBED_MODEL` |  | `text-embedding-3-large` | Embedding model (3072 dims) |
-| `OPENAI_WHISPER_MODEL` |  | `whisper-1` | Speech-to-text |
-| `SESSION_IDLE_TIMEOUT_MIN` |  | `15` | Auto-save session after N min idle |
-| `VAULT_GIT_REMOTE` |  | — | SSH URL of your vault repo |
-| `SENTRY_DSN` |  | — | Sentry error tracking (optional) |
-
-The `lightrag-api` container also needs `LLM_BINDING`, `EMBEDDING_BINDING`, `EMBEDDING_DIM=3072`, etc. — these are pre-wired in [`docker-compose.yml`](docker-compose.yml) using `${OPENAI_API_KEY}` interpolation. You don't need to touch them unless you switch providers.
+You don't need `/start` to begin — **just send any message**. If you have no profile yet, auto-onboarding kicks in.
 
 ---
 
-## 🔌 Connect your brain to AI coding tools (MCP)
+## 🔌 Connect to Claude Code / Cursor / Cline (MCP)
 
-Mnemo exposes its knowledge graph as an MCP server on `127.0.0.1:9621`. **Claude Code, Cursor, Cline, Windsurf**, and any MCP-compatible tool can query your second brain while helping you code.
-
-### Step 1. Verify the API is running
-
-```bash
-docker compose ps
-curl http://localhost:9621/health
-# → {"status":"healthy", ...}
-```
-
-### Step 2. Install the MCP bridge (on your local machine, not in Docker)
+### Step 1 — Install the MCP bridge
 
 ```bash
 pip install mnemo-brain-mcp
+# or with isolation:
+pipx install mnemo-brain-mcp
 ```
 
-`mnemo-brain-mcp` is our friendly fork of [`desimpkins/daniel-lightrag-mcp`](https://github.com/desimpkins/daniel-lightrag-mcp) — the protocol logic is identical, the package is renamed for a clean PyPI install.
+[`mnemo-brain-mcp`](https://pypi.org/project/mnemo-brain-mcp/) is a friendly fork of [`desimpkins/daniel-lightrag-mcp`](https://github.com/desimpkins/daniel-lightrag-mcp) — same protocol logic, renamed for a clean `pip install`.
 
-After install the `mnemo-brain-mcp` command is on your `PATH`.
+### Step 2 — Register with Claude Code
 
-### Step 3. Configure your tool
+```bash
+API_KEY=$(cat secrets/lightrag_api_key.txt)
+claude mcp add mnemo-brain --scope user \
+  -e LIGHTRAG_BASE_URL=http://localhost:9621 \
+  -e LIGHTRAG_API_KEY="$API_KEY" \
+  -- "$(which mnemo-brain-mcp)"
+claude mcp list                 # should show mnemo-brain ✓ Connected
+```
 
-#### 🤖 Claude Code
-
-Edit `~/.claude/claude_mcp_config.json` (or run `claude mcp add`):
+Or hand-edit `~/.claude.json`:
 
 ```json
 {
@@ -398,43 +425,21 @@ Edit `~/.claude/claude_mcp_config.json` (or run `claude mcp add`):
 }
 ```
 
-Restart Claude Code. Try: *"What does my brain know about my current projects?"*
+### Step 3 — Try it
 
-#### 🎯 Cursor
+Restart Claude Code. Ask:
 
-`Settings → MCP → Add new MCP server`. Same JSON shape as above.
+> *"What does my brain know about my current projects?"*
 
-#### 🌊 Cline / Windsurf
-
-See their docs for the `mcpServers` config location — the JSON shape is identical.
-
-### Step 4. Tools you get
-
-The bridge exposes **20 tools** over MCP. The most useful ones for read-only graph queries:
-
-| Tool | What it does |
-| --- | --- |
-| `query_text` | 🔍 Hybrid semantic + graph search ("What did I plan for Q3?") |
-| `query_text_stream` | streaming variant |
-| `get_knowledge_graph` | 🌐 Subgraph around a label (entity relationships) |
-| `get_graph_labels` | 🏷️  All entity labels in the graph |
-| `check_entity_exists` | quick existence probe |
-| `get_documents` | list indexed sources |
-| `get_health` | server health |
+Claude should respond with actual entities from your graph, citing `40_Projects/X.md` paths.
 
 ### 🛡️ Security note
 
-`mnemo-brain-mcp` exposes **22 tools — including write tools** (`insert_text`, `update_entity`, `delete_document`, …). Granting your coding tool access to this MCP server grants it write access to the LightRAG graph.
+`mnemo-brain-mcp` exposes 22 tools — **including write tools** (`insert_text`, `update_entity`, `delete_document`, …). Granting your coding tool access to this server grants it write access to your LightRAG graph.
 
-If you want strict read-only behavior, pick one:
+For Mnemo: the canonical writer to your Obsidian vault is the Telegram bot. Anything an MCP client `insert_text`'s into the graph lives **only in the LightRAG index**, not in your Markdown files. To write to your vault, message the bot.
 
-- **Trust your coding tool** — for personal use this is usually fine.
-- **Reverse proxy** — put a tiny proxy in front of `9621` that whitelists only `GET /graphs/*`, `POST /query`, `GET /health`.
-- **Fork further** — strip the write tools from `mnemo-brain-mcp` (it's MIT and renamed already).
-
-> ⚠️ **Important:** Mnemo's bot is the **only canonical writer to the vault**. Anything an MCP client `insert_text`'s into the graph lives **only in the LightRAG index**, not in your Obsidian Markdown. To write to the vault, message the bot.
-
-### Step 5. Remote access (optional)
+### Step 4 — Remote access (optional)
 
 Don't expose `9621` to the public internet. Recommended:
 
@@ -453,7 +458,70 @@ For the cleanest visualization:
 - **Forces → Repel:** `15`
 - **Groups:** color by folder (`20_People` → blue, `40_Projects` → orange, `80_Themes` → green)
 
-The result: your owner node sits in the middle, projects radiate outward, themes cluster, and tasks orbit their projects.
+The result: your owner sits in the middle, projects radiate outward, themes cluster, tasks orbit their projects.
+
+---
+
+## 🔧 Configuration
+
+All settings go in `.env`. See [`.env.example`](.env.example) for the full list.
+
+| Variable | Required | Default | What |
+| --- | :-: | --- | --- |
+| `TELEGRAM_BOT_TOKEN` | ✅ | — | Bot token from @BotFather |
+| `OPENAI_API_KEY` | ✅ | — | OpenAI API key |
+| `ALLOWED_USER_IDS` | ✅ | — | Comma-separated Telegram user IDs |
+| `TZ` |  | `UTC` | Timezone (see [tz database](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones)) |
+| `OPENAI_MODEL_MAIN` |  | `gpt-5.4` | Main model (chat, extraction, linking) |
+| `OPENAI_MODEL_FAST` |  | `gpt-5.4-mini` | Fast model (topic-shift, owner-refresh) |
+| `OPENAI_MODEL_VISION` |  | `gpt-5.4` | Vision model for photo input |
+| `OPENAI_EMBED_MODEL` |  | `text-embedding-3-large` | Embedding model (3072 dims) |
+| `OPENAI_WHISPER_MODEL` |  | `whisper-1` | Speech-to-text |
+| `SESSION_IDLE_TIMEOUT_MIN` |  | `15` | Auto-save session after N min idle |
+| `VAULT_PULL_INTERVAL_MIN` |  | `2` | How often to pull manual Obsidian edits (0 = off) |
+| `VAULT_GIT_REMOTE` |  | — | SSH URL of your vault repo |
+| `SENTRY_DSN` |  | — | Sentry error tracking (optional) |
+
+The `lightrag-api` container also needs `LLM_BINDING`, `EMBEDDING_BINDING`, `EMBEDDING_DIM=3072`, etc. — these are pre-wired in [`docker-compose.yml`](docker-compose.yml) using `${OPENAI_API_KEY}` interpolation.
+
+---
+
+## 🔐 Security & privacy
+
+- 🔒 **Single-user by design.** `ALLOWED_USER_IDS` whitelist enforced in middleware; everyone else silently dropped.
+- 🏠 **Your data is yours.** Nothing leaves your Docker host except API calls to OpenAI (and optionally Sentry).
+- 📵 **No analytics, no telemetry.**
+- 🔑 **API key auth.** `lightrag-api` requires `X-API-Key` for non-whitelisted endpoints.
+- 🗝️ **SSH key safety.** Vault deploy key mounted read-only; bot copies to `/tmp` at runtime with `0600`.
+- 🛡️ **Git safeguards.** `--force`, `--no-verify`, `--mirror`, `--hard` blocked at code level (assertion).
+- 🚧 **Path-traversal protection.** Every vault path normalized + verified to stay inside `VAULT_PATH`.
+- ❓ **Destructive actions** require explicit Telegram inline confirmation.
+- 🪪 **`/undo` safe-list.** Refuses to revert commits touching `_meta/owner.md` or `_meta/portrait.md`.
+
+---
+
+## 🧪 Verifying everything works
+
+```bash
+# 1. Containers healthy
+docker compose ps          # all 3 should be (healthy)
+
+# 2. Custom KG injection works (bot logs)
+docker compose logs bot | grep "incremental index done (custom kg)"
+
+# 3. HTTP API works
+curl -s http://localhost:9621/health
+
+# 4. Auth enforced
+curl -i "http://localhost:9621/graphs?label=mnemo"   # → 401 or 403
+
+# 5. Auth lets you in
+API_KEY=$(cat secrets/lightrag_api_key.txt)
+curl -s -H "X-API-Key: $API_KEY" http://localhost:9621/graph/label/list
+
+# 6. Tests pass
+uv run pytest -q tests/    # 40 tests
+```
 
 ---
 
@@ -461,12 +529,12 @@ The result: your owner node sits in the middle, projects radiate outward, themes
 
 ```bash
 uv sync                                # install deps
-uv run python -m src.main              # run locally (needs Redis on localhost)
+uv run python -m src.main              # run locally (needs Redis on localhost:6379)
 
 uv run ruff check src/ tests/          # lint
 uv run ruff format src/ tests/         # format
 uv run mypy src/ --strict              # type-check
-uv run pytest -q tests/                # 16 tests, ~0.5 s
+uv run pytest -q tests/                # 40 tests
 ```
 
 Pre-commit hooks run `ruff` + `mypy` automatically. **Never use `--no-verify`.**
@@ -475,80 +543,78 @@ Pre-commit hooks run `ruff` + `mypy` automatically. **Never use `--no-verify`.**
 
 ```
 src/
-├── agent/          loop, extractor, linker, prompts (OpenAI function calling)
-├── lightrag_svc/   client, indexer, converter, graph_sync (custom KG)
-├── multimodal/     whisper, vision
-├── safety/         confirmations
-├── scheduler/      apsched, defaults, triggers
-├── session/        manager (Redis), keys
-├── telegram/       bot, handlers, middleware
-├── tools/          21 tools — obsidian, lightrag, scheduler, misc
-└── vault/          writer, reader, frontmatter, linking, git_ops, ripgrep
+├── agent/           loop, extractor, linker, owner_refresh, prompts
+├── lightrag_svc/    client, indexer, converter, graph_sync, reindex_queue
+├── multimodal/      whisper, vision
+├── safety/          confirmations
+├── scheduler/       apsched, defaults, triggers
+├── session/         manager, lifecycle, locks, topic_shift
+├── telegram/        bot, handlers (text/voice/photo/commands)
+├── tools/           registry, obsidian, lightrag, scheduler, misc
+└── vault/           entity, write_pipeline, vault_map, paths,
+                    frontmatter, reader, writer, git_ops,
+                    linking, dedup, moc, search
 ```
 
-Each module has **one responsibility** — see [`CLAUDE.md`](CLAUDE.md) for the full coding contract.
+Each module has **one responsibility** — see [`CLAUDE.md`](CLAUDE.md) for the full coding contract and [`Memory.md`](Memory.md) for the project handoff document.
 
 ---
 
-## 🔐 Security & privacy
+## 📚 Documents
 
-- **Single-user by design** — `ALLOWED_USER_IDS` whitelist enforced in middleware; everyone else silently dropped.
-- **Your data is yours** — nothing leaves your Docker host except API calls to OpenAI (and optionally Sentry).
-- **No analytics, no telemetry.**
-- **API key auth** — `lightrag-api` requires `X-API-Key` for non-whitelisted endpoints.
-- **SSH key safety** — vault deploy key is mounted read-only; bot copies it to `/tmp` at runtime with `0600`.
-- **Git safeguards** — `--force`, `--no-verify`, `--mirror`, `--hard` are blocked at the code level (assertion).
-- **Path-traversal protection** — every vault path is normalized + verified to stay inside `VAULT_PATH`.
-- **Destructive actions** require explicit inline Telegram confirmation (e.g. note deletion).
-
----
-
-## 🧪 Verifying everything works
-
-A quick smoke test to confirm a fresh install is healthy:
-
-```bash
-# 1. Containers healthy
-docker compose ps   # all 3 should be (healthy)
-
-# 2. Embedded LightRAG works
-docker compose logs bot | grep "incremental index done (custom kg)"
-
-# 3. HTTP API works
-curl -s http://localhost:9621/health | python3 -m json.tool
-
-# 4. Auth enforced
-curl -i http://localhost:9621/graphs?label=mnemo   # → 401 or 403
-
-# 5. Auth lets you in
-API_KEY=$(cat secrets/lightrag_api_key.txt)
-curl -s -H "X-API-Key: $API_KEY" http://localhost:9621/graph/label/list
-
-# 6. Tests pass
-uv run pytest -q tests/
-```
-
-A full end-to-end checklist lives in [`docs/MCP_TESTING.md`](docs/MCP_TESTING.md).
+| File | What |
+| --- | --- |
+| [`CLAUDE.md`](CLAUDE.md) | Coding contract — must-read before changing code |
+| [`Memory.md`](Memory.md) | Full project handoff — read this if you're new |
 
 ---
 
 ## ❓ Troubleshooting
 
 <details>
-<summary><b>🔴 <code>lightrag-api</code> crashes with "Embedding dim mismatch, expected 1024, but loaded 3072"</b></summary>
+<summary><b>🔴 Bot doesn't reply / "user not whitelisted"</b></summary>
 
-You're running with old graph data from a previous Ollama-defaults config. Either:
-- delete the stale graph: `rm -rf data/lightrag/* && docker compose restart lightrag-api`, OR
-- ensure `EMBEDDING_DIM=3072` is set (it should be, in `docker-compose.yml`).
-
-Then `docker compose up -d --force-recreate lightrag-api` to pick up the change.
+Your Telegram numeric ID isn't in `ALLOWED_USER_IDS`. Get it from [@userinfobot](https://t.me/userinfobot) — it's an integer like `123456789`, not your `@username`.
 
 </details>
 
 <details>
-<summary><b>🔴 Bot logs show <code>ModuleNotFoundError: No module named 'redis'</code> in healthcheck</b></summary>
+<summary><b>🔴 First message doesn't start onboarding</b></summary>
 
-The healthcheck must use `/app/.venv/bin/python` (not bare `python`). Already fixed in `docker-compose.yml`.
+Should auto-trigger if vault has no `_meta/portrait.md`. Check `docker compose logs bot` for the line `auto-onboarding triggered`. If your vault has stale files from a previous test, reset:
+
+```bash
+docker compose exec -T redis redis-cli FLUSHALL
+find data/vault -name "*.md" ! -name ".gitkeep" -delete
+rm -rf data/vault/.git
+cd data/vault && git init -q -b main && \
+  git config user.email "mnemo-bot@localhost" && \
+  git config user.name "mnemo-bot" && \
+  git add -A && git commit -q -m "init"
+docker compose restart bot
+```
+
+</details>
+
+<details>
+<summary><b>🔴 Graph empty after restart</b></summary>
+
+LightRAG cache is in-memory; after `docker compose restart` it re-reads `data/lightrag/*.json`. If those are missing or stale, run a catch-up reindex:
+
+```bash
+docker compose exec -T bot /app/.venv/bin/python -c "
+import asyncio
+from pathlib import Path
+async def main():
+    from src.lightrag_svc.indexer import index_files
+    vault = Path('/data/vault')
+    paths = [str(p.relative_to(vault)) for p in vault.rglob('*.md')
+             if not str(p.relative_to(vault)).startswith(('_meta/MOC_', '_meta/ontology', '_meta/portrait'))]
+    await index_files(paths)
+asyncio.run(main())
+"
+docker compose restart lightrag-api
+```
 
 </details>
 
@@ -560,23 +626,37 @@ Another process holds it. Find and kill: `lsof -i :9621` → `kill <PID>`. Commo
 </details>
 
 <details>
-<summary><b>🔴 Bot doesn't reply / "user not whitelisted"</b></summary>
-
-Your Telegram numeric ID isn't in `ALLOWED_USER_IDS`. Get it from [@userinfobot](https://t.me/userinfobot) — it's an integer like `123456789`, not your `@username`.
-
-</details>
-
-<details>
 <summary><b>🔴 MCP query in Claude Code returns 401</b></summary>
 
-`LIGHTRAG_API_KEY` env var in `claude_mcp_config.json` is missing or stale. Re-paste the contents of `secrets/lightrag_api_key.txt` (no quotes, no whitespace).
+`LIGHTRAG_API_KEY` env var in your MCP config is missing or stale. Get the current value:
+
+```bash
+cat secrets/lightrag_api_key.txt
+```
+
+Re-add via `claude mcp remove mnemo-brain && claude mcp add ...` (see [Step 2](#step-2--register-with-claude-code) above).
 
 </details>
 
 <details>
-<summary><b>🔴 Graph is sparse / "single star around daily-note"</b></summary>
+<summary><b>🔴 <code>lightrag-api</code> crashes with "Embedding dim mismatch"</b></summary>
 
-This was the v1 problem. v2.0 enforces typed forward links via the linker post-pass. Make sure `add_typed_link` background reindex isn't failing — check `docker compose logs bot | grep "link reindex"`.
+You're running with old graph data. Either delete stale graph: `rm -rf data/lightrag/* && docker compose restart lightrag-api`, OR ensure `EMBEDDING_DIM=3072` is set (it is, by default).
+
+</details>
+
+<details>
+<summary><b>🔴 Bot logs <code>vault_pull_sync</code> conflict</b></summary>
+
+You have manual Obsidian edits AND bot edits that diverged. Bot **does not** auto-resolve — you'll get a Telegram alert. Fix manually in your local clone:
+
+```bash
+cd ~/MyVault              # or wherever your local clone lives
+git pull --rebase         # resolve conflicts
+git push
+```
+
+Bot will resume sync on next tick.
 
 </details>
 
@@ -584,19 +664,19 @@ This was the v1 problem. v2.0 enforces typed forward links via the linker post-p
 
 ## 🤝 Contributing
 
-PRs welcome. Read [`CLAUDE.md`](CLAUDE.md) and [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) **before** writing code — they are the contract.
+PRs welcome. Read [`CLAUDE.md`](CLAUDE.md) and [`Memory.md`](Memory.md) **before** writing code — they are the contract.
 
 ```bash
-# 1. fork, branch off main
+# 1. Fork, branch off main
 git checkout -b feat/my-thing
 
-# 2. implement, following CLAUDE.md
-# 3. all green:
+# 2. Implement, following CLAUDE.md
+# 3. All green:
 uv run ruff check src/ tests/
 uv run mypy src/ --strict
 uv run pytest -q tests/
 
-# 4. open a PR with what + why
+# 4. Open a PR with what + why
 ```
 
 ---

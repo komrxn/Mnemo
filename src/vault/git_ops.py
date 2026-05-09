@@ -176,6 +176,10 @@ async def pull_with_diff(vault_path: Path) -> VaultDiff | None:
             except RuntimeError:
                 pass
             return None
+        # Local branch has no upstream → can't pull, but it's not an error
+        # (means: user hasn't set up tracking yet; we just skip sync this tick).
+        if "no tracking information" in msg.lower():
+            return VaultDiff(added=[], modified=[], deleted=[], renamed=[])
         # Other errors (network/auth) — propagate
         raise
 

@@ -2,6 +2,13 @@
 .env
 secrets/
 
+# Internal planning / handoff docs (not for community)
+AUDIT_AND_REFACTOR_PLAN.md
+SENIOR_FIXES_PLAN.md
+IMPLEMENTATION_PLAN.md
+IMPLEMENTATION_PLAN_V3.md
+docs/MCP_TESTING.md
+
 # Python
 .venv/
 __pycache__/

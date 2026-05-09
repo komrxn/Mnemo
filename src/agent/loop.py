@@ -13,9 +13,14 @@ from src.config import settings
 logger = structlog.get_logger()
 
 _client: AsyncOpenAI | None = None
+_client_lock = asyncio.Lock()
 
 
 def get_client() -> AsyncOpenAI:
+    """Sync access to the singleton client (initialized lazily).
+
+    For most call paths sync is fine since AsyncOpenAI() constructor is cheap.
+    """
     global _client
     if _client is None:
         _client = AsyncOpenAI(api_key=settings.openai_api_key)

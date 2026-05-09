@@ -34,16 +34,23 @@ async def add_typed_link(
     session_id: str = "",
 ) -> bool:
     """Add a typed relation from from_path to to_path. Returns True if link was added."""
+    from src.vault.paths import VaultPathError, resolve_inside_vault
+
     if from_path == to_path:
         return False
     if not reader.note_exists(from_path) or not reader.note_exists(to_path):
         logger.warning("typed link skipped: missing note", from_=from_path, to=to_path)
         return False
 
+    try:
+        from_full = resolve_inside_vault(from_path)
+    except VaultPathError as exc:
+        logger.warning("typed link rejected: from_path traversal", error=str(exc))
+        return False
+
     wikilink_to = f"[[{to_path.removesuffix('.md')}]]"
     vault = Path(settings.vault_path)
 
-    from_full = vault / from_path
     raw = from_full.read_text(encoding="utf-8")
     fm, body = parse(raw)
 

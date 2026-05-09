@@ -129,9 +129,22 @@ async def insert(text: str) -> None:
     await rag.ainsert(text)  # type: ignore[attr-defined]
 
 
-async def query(question: str, mode: str = "mix") -> str:
+async def query(
+    question: str,
+    mode: str = "mix",
+    only_need_context: bool = False,
+    top_k: int = 10,
+) -> str:
+    """Query the LightRAG graph.
+
+    only_need_context=True → return retrieved chunks/entities as raw context
+    without LLM-generated answer (cheaper — used for auto-recall middleware).
+    """
     from lightrag import QueryParam  # type: ignore[import]
 
     rag = await get_rag()
-    result = await rag.aquery(question, param=QueryParam(mode=mode))  # type: ignore[attr-defined]
-    return result or "нет результатов"
+    param = QueryParam(mode=mode, only_need_context=only_need_context, top_k=top_k)
+    result = await rag.aquery(question, param=param)  # type: ignore[attr-defined]
+    if not result:
+        return "" if only_need_context else "нет результатов"
+    return result

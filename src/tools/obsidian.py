@@ -10,7 +10,7 @@ from src.config import settings
 from src.tools.registry import ToolDef, get_registry
 from src.vault import reader, writer
 from src.vault import search as vsearch
-from src.vault.frontmatter import NoteType, make_note_path, parse, serialize
+from src.vault.frontmatter import NoteType, parse, serialize
 
 logger = structlog.get_logger()
 
@@ -36,11 +36,25 @@ class SearchNotesParams(BaseModel):
 
 
 class CreateNoteParams(BaseModel):
+    """Strict-typed creation. The `entity` field carries the full Entity contract.
+
+    Note for the agent: legacy `body` / `frontmatter` / `links` are kept as
+    *optional* compatibility fields, but the canonical path is `entity`.
+    Anything passed via `body`/`frontmatter`/`links` is best-effort merged
+    into the Entity, then validated.
+    """
+
     type: NoteType
     title: str
-    body: str
+    body: str = ""
     frontmatter: dict[str, Any] = {}
     links: list[str] = []
+
+
+class SearchExistingParams(BaseModel):
+    type: NoteType
+    query: str
+    aliases: list[str] = []
 
 
 class AppendToNoteParams(BaseModel):
@@ -112,50 +126,194 @@ async def _search_notes(p: SearchNotesParams, session_id: str = "") -> str:
     return "\n".join(f"{h['path']}: {h['context']}" for h in hits)
 
 
-async def _create_note(p: CreateNoteParams, session_id: str = "") -> str:
+# READ-before-WRITE enforcement: agent must call search_existing_entities
+# within this many seconds before create_note for the same (type, query).
+# If not, create_note refuses and points the agent at search.
+_READ_GATE_TTL_SECONDS = 60
+
+
+async def _record_search(note_type: str, query: str) -> None:
+    """Mark that the agent has searched for this (type, query) recently."""
+    from src.session.manager import get_redis
+
+    redis = await get_redis()
+    key = f"read_gate:{note_type}:{query.lower().strip()}"
+    await redis.set(key, b"1", ex=_READ_GATE_TTL_SECONDS)
+
+
+async def _check_search_was_done(note_type: str, query: str) -> bool:
+    from src.session.manager import get_redis
+
+    redis = await get_redis()
+    key = f"read_gate:{note_type}:{query.lower().strip()}"
+    return bool(await redis.get(key))
+
+
+async def _search_existing_entities(p: SearchExistingParams, session_id: str = "") -> str:
+    """Tool: returns existing entities of the same type that resemble query+aliases.
+
+    Two-gate search:
+      1) FUZZY (rapidfuzz) — catches typos, transliteration, case differences
+      2) SEMANTIC (LightRAG embeddings) — catches synonyms, paraphrases,
+         cross-language equivalents (e.g. "AI" ↔ "искусственный интеллект",
+         "ЗОЖ" ↔ "здоровый образ жизни")
+
+    Agent MUST call this before create_note. Marker stored in Redis with TTL=60s.
+    """
     from src.vault.dedup import find_similar
 
-    aliases: list[str] = p.frontmatter.get("aliases", []) if p.frontmatter else []
-    candidates = await find_similar(p.type, p.title, aliases, threshold=85)
+    fuzzy = await find_similar(p.type, p.query, p.aliases, threshold=60)
+    await _record_search(p.type, p.query)
 
-    if candidates and candidates[0].score >= 90:
-        existing_path = candidates[0].path
-        raw = (Path(settings.vault_path) / existing_path).read_text(encoding="utf-8")
-        fm_dict, _ = parse(raw)
-        existing_aliases: list[str] = fm_dict.get("aliases", []) or []
-        merged = sorted({*existing_aliases, p.title, *aliases})
-        await writer.update_frontmatter(existing_path, {"aliases": merged}, session_id)
+    # Semantic gate via LightRAG — only chunks/entities, no LLM generation
+    semantic_paths: list[str] = []
+    try:
+        from src.lightrag_svc.client import query as kg_query
+
+        kg_text = await kg_query(
+            f"{p.query} {' '.join(p.aliases)}".strip(),
+            mode="mix",
+            only_need_context=True,
+            top_k=8,
+        )
+        # LightRAG context references file_path entries — extract paths matching this type's folder
+        from src.vault.frontmatter import TYPE_FOLDERS
+
+        type_folder = TYPE_FOLDERS.get(p.type, "")
+        if type_folder:
+            import re as _re
+
+            for match in _re.finditer(rf"{_re.escape(type_folder)}/[\w\-./а-яёА-ЯЁ]+\.md", kg_text):
+                path = match.group(0)
+                if path not in semantic_paths and reader.note_exists(path):
+                    semantic_paths.append(path)
+    except Exception as exc:
+        logger.warning("semantic search failed", error=str(exc))
+
+    # Combine — fuzzy candidates take priority (have scores), semantic appended
+    fuzzy_paths = {c.path for c in fuzzy}
+    semantic_only = [p for p in semantic_paths if p not in fuzzy_paths][:5]
+
+    if not fuzzy and not semantic_only:
+        return f"ничего похожего не найдено в {p.type}. Можешь создавать новую."
+
+    lines: list[str] = []
+    if fuzzy:
+        lines.append(f"Fuzzy match ({len(fuzzy)}):")
+        for c in fuzzy[:5]:
+            lines.append(f"  - {c.path} (score={c.score})")
+    if semantic_only:
+        lines.append(f"Semantic match ({len(semantic_only)}, через embeddings):")
+        for path in semantic_only:
+            lines.append(f"  - {path}")
+    if any(c.score >= 85 for c in fuzzy):
+        lines.append(
+            "Fuzzy ≥85 → почти точно то же. Используй append_to_note или "
+            "create_note с canonical_name = существующего."
+        )
+    elif fuzzy and any(c.score >= 70 for c in fuzzy):
+        lines.append("Fuzzy 70-85 → возможно та же сущность. Решай по контексту.")
+    if semantic_only:
+        lines.append(
+            "Semantic match — это синонимы/перефразирование. Если про то же — "
+            "переиспользуй существующую заметку, не плоди дубль."
+        )
+    return "\n".join(lines)
+
+
+async def _create_note(p: CreateNoteParams, session_id: str = "") -> str:
+    """Create a note via the unified write_pipeline.
+
+    Builds an Entity from legacy params (body/frontmatter/links) — pydantic
+    validators will reject malformed input (markdown in body, third-person
+    title, etc.) with a clear error message that the LLM can correct.
+    """
+    from src.vault.entity import ALL_RELATION_FIELDS, Entity, Relation
+    from src.vault.write_pipeline import write_entity
+
+    # READ-before-WRITE gate: refuse unless agent searched recently
+    if not await _check_search_was_done(p.type, p.title):
         return (
-            f"найден дубликат: {existing_path} (score={candidates[0].score}). "
-            f"Используй append_to_note для дописывания фактов."
+            f"⛔ Сначала вызови search_existing_entities(type={p.type!r}, "
+            f"query={p.title!r}). Это обязательно перед create_note чтобы не "
+            f"плодить дубли. После search можешь повторить create_note."
         )
 
-    if candidates and candidates[0].score >= 70:
-        cand_str = "\n".join(f"  - {c.path} (score={c.score})" for c in candidates[:3])
+    aliases_in: list[str] = []
+    relations_in: list[Relation] = []
+    one_liner_fallback = ""
+
+    if p.frontmatter:
+        # aliases from frontmatter
+        aliases_in = list(p.frontmatter.get("aliases", []) or [])
+        # extract relation fields from frontmatter (legacy compat)
+        for field, value in p.frontmatter.items():
+            if field not in ALL_RELATION_FIELDS:
+                continue
+            targets = value if isinstance(value, list) else [value]
+            for tgt in targets:
+                if not isinstance(tgt, str):
+                    continue
+                # Strip wikilink wrapping
+                s = tgt.strip()
+                while s.startswith("[[") and s.endswith("]]"):
+                    s = s[2:-2].strip()
+                if "/" in s and not s.endswith(".md"):
+                    s = s + ".md"
+                if s:
+                    relations_in.append(Relation(field=field, target_path=s))  # type: ignore[arg-type]
+
+    # Body: take first non-empty line as one_liner; rest discarded (we render
+    # programmatically from facts). If nothing usable, complain.
+    body_lines = [ln.strip() for ln in p.body.splitlines() if ln.strip()]
+    body_lines = [
+        ln
+        for ln in body_lines
+        if not ln.startswith("---") and not ln.startswith("##") and not ln.startswith("#")
+    ]
+    # Drop wikilink-only lines (the fake ## Связи block)
+    body_lines = [ln for ln in body_lines if not (ln.startswith("[[") and ln.endswith("]]"))]
+    if body_lines:
+        one_liner_fallback = body_lines[0][:200]
+
+    if not one_liner_fallback:
         return (
-            f"возможные дубликаты для {p.title!r}:\n{cand_str}\n"
-            f"Если это та же сущность — используй append_to_note к существующей. "
-            f"Если это другая сущность — повтори create_note с уточнённым title."
+            "⛔ body пустой или состоит только из YAML/wikilinks. "
+            "Передай в body конкретное описание сущности одним предложением "
+            "(что это, зачем, в каком статусе)."
         )
 
-    rel_path = make_note_path(p.type, p.title)
-    fm: dict[str, Any] = {"type": p.type, **p.frontmatter}
-    if "aliases" not in fm:
-        fm["aliases"] = []
+    try:
+        entity = Entity(
+            type=p.type,
+            canonical_name=p.title,
+            aliases=aliases_in,
+            one_liner=one_liner_fallback,
+            facts=[],  # legacy create_note doesn't have facts; use append_to_note for those
+            relations=relations_in,
+        )
+    except Exception as exc:
+        return f"⛔ невалидные параметры: {exc}"
 
-    body = p.body
-    if p.links:
-        link_section = "\n".join(f"[[{lnk}]]" for lnk in p.links)
-        body = body.rstrip() + f"\n\n## Связи\n\n{link_section}"
+    result = await write_entity(entity, session_id)
+    return f"{result.action}: {result.path}"
 
-    sha = await writer.write_note(rel_path, body, fm, session_id)
-    return f"создано: {rel_path} (sha={sha[:8]})"
+
+async def _enqueue_index(paths: list[str]) -> None:
+    """Schedule LightRAG re-index for the given vault paths (debounced)."""
+    try:
+        from src.lightrag_svc.reindex_queue import enqueue
+
+        await enqueue(paths)
+    except Exception as exc:
+        logger.warning("reindex enqueue skipped", paths=paths, error=str(exc))
 
 
 async def _append_to_note(p: AppendToNoteParams, session_id: str = "") -> str:
     if not reader.note_exists(p.path):
         return f"заметка {p.path!r} не найдена"
     sha = await writer.append_to_note(p.path, p.block, session_id)
+    await _enqueue_index([p.path])
     return f"дописано: {p.path} (sha={sha[:8]})"
 
 
@@ -163,6 +321,7 @@ async def _update_frontmatter(p: UpdateFrontmatterParams, session_id: str = "") 
     if not reader.note_exists(p.path):
         return f"заметка {p.path!r} не найдена"
     sha = await writer.update_frontmatter(p.path, p.patch, session_id)
+    await _enqueue_index([p.path])
     return f"frontmatter обновлён: {p.path} (sha={sha[:8]})"
 
 
@@ -255,8 +414,16 @@ def _register() -> None:
             _search_notes,
         ),
         (
+            "search_existing_entities",
+            "ОБЯЗАТЕЛЬНО вызови перед create_note. Возвращает существующие "
+            "сущности того же типа похожие на query — чтобы не плодить дубли.",
+            SearchExistingParams,
+            _search_existing_entities,
+        ),
+        (
             "create_note",
-            "Создать новую заметку с автогенерацией пути по типу",
+            "Создать новую заметку. ТРЕБУЕТ предварительного search_existing_entities. "
+            "body = одно предложение про сущность. frontmatter = типизированные связи.",
             CreateNoteParams,
             _create_note,
         ),

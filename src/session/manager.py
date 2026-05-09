@@ -43,6 +43,16 @@ def key_onboarding(user_id: int) -> str:
     return f"user:onboarding:{user_id}"
 
 
+def key_pending_buffer(user_id: int) -> str:
+    """Redis list of incoming messages awaiting debounce window to close."""
+    return f"user:pending:{user_id}"
+
+
+def key_pending_token(user_id: int) -> str:
+    """Token (latest enqueue ts) used to detect "I'm not the last enqueuer"."""
+    return f"user:pending_token:{user_id}"
+
+
 # ── TTLs ──────────────────────────────────────────────────────────────────────
 
 _ACTIVE_TTL = 24 * 3600  # 24 h sliding

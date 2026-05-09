@@ -22,6 +22,27 @@ logger = structlog.get_logger()
 # ── extraction schema ─────────────────────────────────────────────────────────
 
 
+class TypedLink(BaseModel):
+    """One typed relation from this entity to a target note.
+
+    `field` — name of the frontmatter relation (owner, works_at, for_job, for_project,
+    themes, about_person, related_people, parent_theme).
+    `target` — vault-relative path of the target note (e.g. "30_Jobs/legai.md").
+    """
+
+    field: Literal[
+        "owner",
+        "works_at",
+        "for_job",
+        "for_project",
+        "themes",
+        "about_person",
+        "related_people",
+        "parent_theme",
+    ]
+    target: str
+
+
 class EntityInfo(BaseModel):
     type: Literal["person", "project", "task", "job", "theme", "memory", "thought"]
     name: str
@@ -30,12 +51,10 @@ class EntityInfo(BaseModel):
     updates: list[str] = []
     due: str = ""
     status: str = "open"
-    # typed_links: dict where each key is a frontmatter field (owner, works_at, ...)
-    # and each value is a list of vault-relative target paths (e.g. "30_Jobs/legai.md").
-    # Single-value fields (owner/works_at/for_job/for_project/about_person/parent_theme)
-    # use a list with exactly one element. List-value fields (themes, related_people)
-    # use a list with 0+ elements.
-    typed_links: dict[str, list[str]] = {}
+    # List of typed relations from this entity. Compatible with OpenAI strict mode
+    # (no dict with arbitrary keys). Multiple links to the same field type are allowed
+    # (e.g. two `themes` entries → two list items).
+    typed_links: list[TypedLink] = []
 
 
 class ThoughtEntry(BaseModel):
@@ -62,13 +81,38 @@ class SessionExtraction(BaseModel):
 
 
 async def extract(msgs: list[SessionMessage]) -> SessionExtraction:
-    """Extract structured data from session messages via structured outputs."""
+    """Extract structured data from session messages via structured outputs.
+
+    Injects a vault map + a language directive into the system prompt — LLM
+    sees existing entities (no parallels) and uses one language consistently.
+    """
+    from src.session.manager import get_profile, get_redis
+    from src.telegram.handlers.text import _build_language_instruction
+    from src.vault.vault_map import build_vault_map
+
     conversation = "\n".join(f"{m.role.upper()}: {m.content}" for m in msgs)
+    base_system = prompts.load("session_extract")
+    vault_map = build_vault_map()
+
+    # Pull vault_language from profile (set during onboarding)
+    try:
+        redis = await get_redis()
+        user_id = settings.allowed_user_ids[0]
+        profile = await get_profile(redis, user_id)
+        lang = str(profile.get("vault_language", "mixed"))
+    except Exception:
+        lang = "mixed"
+    lang_instruction = _build_language_instruction(lang)
+
+    system_with_map = (
+        f"{base_system}\n\n---\n\n{lang_instruction}\n\n---\n\n{vault_map}"
+    )
+
     client = get_client()
     response = await client.beta.chat.completions.parse(
         model=settings.openai_model_main,
         messages=[
-            {"role": "system", "content": prompts.load("session_extract")},
+            {"role": "system", "content": system_with_map},
             {"role": "user", "content": f"Диалог сессии:\n\n{conversation}"},
         ],
         response_format=SessionExtraction,
@@ -92,87 +136,64 @@ _ENTITY_TO_NOTE_TYPE: dict[str, NoteType] = {
 }
 
 
-# All known typed-link fields. Anything else gets a warning.
-_ALL_TYPED_LINKS = frozenset(
-    {
-        "owner",
-        "works_at",
-        "for_job",
-        "for_project",
-        "about_person",
-        "parent_theme",
-        "themes",
-        "related_people",
-    }
-)
-# `owner` is the only forward field with NO inverse (intentional — see Phase C):
-# inverting it would flood _meta/owner.md with thousands of backlinks. So owner
-# goes straight into frontmatter without going through add_typed_link.
-_OWNER_FIELD = "owner"
-
-
 async def _apply_entity(entity: EntityInfo, session_id: str) -> str:
+    """Adapter: convert legacy EntityInfo (extractor LLM output) to Entity contract,
+    then route through the unified write_pipeline.
+    """
+    from src.vault.entity import Entity, Relation
+    from src.vault.write_pipeline import write_entity
+
     note_type: NoteType = _ENTITY_TO_NOTE_TYPE.get(entity.type, "inbox")  # type: ignore[assignment]
-    rel_path = make_note_path(note_type, entity.name)
 
-    body_parts: list[str] = []
-    if entity.new_facts:
-        body_parts.append("## Факты\n\n" + "\n".join(f"- {f}" for f in entity.new_facts))
-    if entity.updates:
-        body_parts.append("## Обновления\n\n" + "\n".join(f"- {u}" for u in entity.updates))
-    body = "\n\n".join(body_parts)
+    # Build Entity contract from EntityInfo.
+    # one_liner = first new_fact OR fallback to name
+    one_liner = entity.new_facts[0] if entity.new_facts else entity.name
+    one_liner = one_liner.strip().split("\n")[0][:200]
+    if len(one_liner) < 10:
+        one_liner = f"{entity.name} ({note_type})"
 
-    fm: dict[str, Any] = {"type": note_type, "aliases": entity.aliases}
-    if note_type == "task":
+    relations: list[Relation] = []
+    for link in entity.typed_links:
+        relations.append(
+            Relation(field=link.field, target_path=link.target)  # type: ignore[arg-type]
+        )
+
+    try:
+        e = Entity(
+            type=note_type,
+            canonical_name=entity.name,
+            aliases=entity.aliases,
+            one_liner=one_liner,
+            facts=entity.new_facts[1:] if len(entity.new_facts) > 1 else [],
+            relations=relations,
+        )
+    except Exception as exc:
+        logger.warning(
+            "extractor entity validation failed",
+            name=entity.name,
+            type=note_type,
+            error=str(exc),
+        )
+        return ""
+
+    result = await write_entity(e, session_id)
+
+    # write_entity may reject the entity (e.g. name contains owner_name).
+    # Empty path → propagate skip to caller.
+    if not result.path:
+        return ""
+
+    # Task-specific frontmatter (status/due) — set after write_entity since
+    # Entity contract doesn't carry those. They live on the task note only.
+    if note_type == "task" and (entity.status or entity.due):
+        task_patch: dict[str, Any] = {}
         if entity.status:
-            fm["status"] = entity.status
+            task_patch["status"] = entity.status
         if entity.due:
-            fm["due"] = entity.due
+            task_patch["due"] = entity.due
+        await writer.update_frontmatter(result.path, task_patch, session_id)
 
-    # owner — write straight to frontmatter (no inverse needed)
-    owner_targets = entity.typed_links.get(_OWNER_FIELD, [])
-    if owner_targets:
-        fm[_OWNER_FIELD] = f"[[{owner_targets[0].removesuffix('.md')}]]"
-
-    # Collect all OTHER typed links (these need add_typed_link for inverse generation)
-    typed_links_to_add: list[tuple[str, str]] = []
-    for field, targets in entity.typed_links.items():
-        if field == _OWNER_FIELD:
-            continue
-        if field not in _ALL_TYPED_LINKS:
-            logger.warning(
-                "unknown typed_link field skipped", entity=rel_path, field=field
-            )
-            continue
-        for tgt in targets:
-            typed_links_to_add.append((field, tgt))
-
-    # Write or update the note (owner already in fm, other links added below)
-    if reader.note_exists(rel_path):
-        if body:
-            await writer.append_to_note(rel_path, body, session_id)
-        await writer.update_frontmatter(rel_path, fm, session_id)
-    else:
-        await writer.write_note(rel_path, body or entity.name, fm, session_id)
-
-    # All non-owner typed links go via add_typed_link
-    # (creates inverse on target + single git commit per pair + reindex queue)
-    if typed_links_to_add:
-        from src.vault.linking import add_typed_link
-
-        for field, target_path in typed_links_to_add:
-            try:
-                await add_typed_link(rel_path, target_path, field, session_id)
-            except Exception as exc:
-                logger.warning(
-                    "typed_link failed",
-                    from_=rel_path,
-                    to=target_path,
-                    relation=field,
-                    error=str(exc),
-                )
-
-    return rel_path
+    return result.path
 
 
 async def _update_daily(
@@ -224,7 +245,8 @@ async def apply_to_vault(extraction: SessionExtraction, session_id: str) -> list
     # Entities (people, projects, tasks, jobs, themes, memories, thoughts)
     for entity in extraction.entities:
         path = await _apply_entity(entity, session_id)
-        created.append(path)
+        if path:  # _apply_entity returns "" on validation failure — skip
+            created.append(path)
 
     # Standalone thoughts
     for thought in extraction.thoughts:
@@ -292,8 +314,33 @@ async def apply_to_vault(extraction: SessionExtraction, session_id: str) -> list
     except Exception as exc:
         logger.warning("moc regen skipped", error=str(exc))
 
-    # Push to remote
-    await git_ops.push(Path(settings.vault_path))
+    # Owner.md auto-refresh — only if a fundamental fact about the owner was
+    # touched (new job / life-event memory / top-level theme). Skips refresh
+    # for sessions that only added details to existing sub-graphs.
+    try:
+        from src.agent.owner_refresh import refresh_owner_from_vault, should_refresh_after
+        from src.session import manager as session_mgr
+
+        if should_refresh_after(created):
+            redis = await session_mgr.get_redis()
+            user_id = settings.allowed_user_ids[0]
+            profile = await session_mgr.get_profile(redis, user_id)
+            owner_name = str(profile.get("owner_name", "Владелец"))
+            refreshed = await refresh_owner_from_vault(owner_name)
+            if refreshed:
+                logger.info("owner.md auto-refreshed after session", session_id=session_id)
+    except Exception as exc:
+        logger.warning("owner refresh skipped", error=str(exc))
+
+    # Push to remote — graceful: if SSH/network broken, vault still has commits
+    try:
+        await git_ops.push(Path(settings.vault_path))
+    except Exception as exc:
+        logger.warning(
+            "vault push failed (commits saved locally)",
+            session_id=session_id,
+            error=str(exc),
+        )
 
     # Incremental LightRAG index (background, non-blocking)
     _task = asyncio.create_task(_index_created(created))

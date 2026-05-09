@@ -40,13 +40,22 @@ async def request_confirmation(user_id: int, question: str) -> bool:
     logger.debug("awaiting confirmation", correlation_id=correlation_id)
 
     try:
+        # Poll with explicit timeout (pubsub.listen() blocks indefinitely
+        # without a way to honor the deadline; get_message has timeout param).
         deadline = asyncio.get_event_loop().time() + _TIMEOUT
-        async for message in pubsub.listen():
-            if asyncio.get_event_loop().time() > deadline:
-                break
-            if message["type"] == "message":
-                answer = message["data"]
-                return answer == b"yes"
+        while asyncio.get_event_loop().time() < deadline:
+            remaining = deadline - asyncio.get_event_loop().time()
+            try:
+                message = await pubsub.get_message(
+                    ignore_subscribe_messages=True,
+                    timeout=min(remaining, 5.0),
+                )
+            except TimeoutError:
+                continue
+            if message is None:
+                continue
+            if message.get("type") == "message":
+                return message.get("data") == b"yes"
     finally:
         await pubsub.unsubscribe(channel)
         await pubsub.aclose()  # type: ignore[attr-defined]
