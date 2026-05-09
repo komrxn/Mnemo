@@ -216,7 +216,7 @@ flowchart TB
 ### 2️⃣ Bootstrap
 
 ```bash
-git clone https://github.com/komrxn/Khusayinbek_brain.git mnemo
+git clone https://github.com/komrxn/Mnemo.git mnemo
 cd mnemo
 ./setup.sh                  # idempotent — creates secrets/, data/, api key
 ```
