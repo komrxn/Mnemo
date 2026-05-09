@@ -25,13 +25,28 @@ def _check(*args: str) -> None:
         assert arg not in _FORBIDDEN, f"forbidden git flag: {arg!r}"
 
 
+def _base_env() -> dict[str, str]:
+    """Base env for every git invocation.
+
+    Sets safe.directory=* so git doesn't refuse operations on the bind-mounted
+    /data/vault when the host owner uid differs from the container's uid
+    (git 2.35.2+ "dubious ownership" check). This is single-user infra — the
+    vault is always trusted.
+    """
+    env = os.environ.copy()
+    env["GIT_CONFIG_COUNT"] = "1"
+    env["GIT_CONFIG_KEY_0"] = "safe.directory"
+    env["GIT_CONFIG_VALUE_0"] = "*"
+    return env
+
+
 def _ssh_env() -> dict[str, str]:
-    """Build env with GIT_SSH_COMMAND pointing to our deploy key."""
+    """Extend base env with GIT_SSH_COMMAND pointing to our deploy key."""
     import shutil
 
     from src.config import settings
 
-    env = os.environ.copy()
+    env = _base_env()
     key = settings.vault_git_ssh_key
     if key and Path(key).exists():
         # /run/secrets is read-only in Docker — copy to writable /tmp first
@@ -45,7 +60,7 @@ def _ssh_env() -> dict[str, str]:
 async def _run(cwd: Path, *args: str, use_ssh: bool = False) -> str:
     """Run git command in cwd, return stdout. Raises RuntimeError on non-zero exit."""
     _check(*args)
-    env = _ssh_env() if use_ssh else None
+    env = _ssh_env() if use_ssh else _base_env()
     proc = await asyncio.create_subprocess_exec(
         "git",
         *args,
