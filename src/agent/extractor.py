@@ -80,47 +80,112 @@ class SessionExtraction(BaseModel):
 # ── LLM extraction ────────────────────────────────────────────────────────────
 
 
-async def extract(msgs: list[SessionMessage]) -> SessionExtraction:
+async def extract(msgs: list[SessionMessage], session_id: str = "") -> SessionExtraction:
     """Extract structured data from session messages via structured outputs.
 
     Injects a vault map + a language directive into the system prompt — LLM
     sees existing entities (no parallels) and uses one language consistently.
+    If `session_id` is provided, also injects any filled slots so the LLM
+    honors literal user answers when constructing canonical_name/aliases.
     """
-    from src.session.manager import get_profile, get_redis
+    from src.session import slots
+    from src.session.manager import get_notes_language, get_profile, get_redis
     from src.telegram.handlers.text import _build_language_instruction
     from src.vault.vault_map import build_vault_map
 
     conversation = "\n".join(f"{m.role.upper()}: {m.content}" for m in msgs)
-    base_system = prompts.load("session_extract")
-    vault_map = build_vault_map()
 
-    # Pull vault_language from profile (set during onboarding)
     try:
         redis = await get_redis()
         user_id = settings.allowed_user_ids[0]
         profile = await get_profile(redis, user_id)
-        lang = str(profile.get("vault_language", "mixed"))
+        notes_lang = get_notes_language(profile)
     except Exception:
-        lang = "mixed"
-    lang_instruction = _build_language_instruction(lang)
+        notes_lang = "ru"
+        redis = None
 
-    system_with_map = (
-        f"{base_system}\n\n---\n\n{lang_instruction}\n\n---\n\n{vault_map}"
-    )
+    base_system = prompts.load("session_extract", lang=notes_lang)
+    vault_map = build_vault_map()
+    lang_instruction = _build_language_instruction(notes_lang)
+
+    # Pull filled slots so literals like "Ресторан БЕК" can't be paraphrased away
+    # at extraction time (M2 of memory-layers plan).
+    filled_block = ""
+    if session_id and redis is not None:
+        try:
+            filled = await slots.list_filled(redis, session_id)
+            filled_block = slots.format_filled_list_for_extraction(filled, lang=notes_lang)
+        except Exception as exc:
+            logger.warning("filled slots fetch failed", session_id=session_id, error=str(exc))
+
+    parts = [base_system, lang_instruction, vault_map]
+    if filled_block:
+        parts.append(filled_block)
+    system_with_map = "\n\n---\n\n".join(parts)
+
+    dialog_label = {
+        "ru": "Диалог сессии",
+        "en": "Session dialog",
+        "uz": "Sessiya muloqoti",
+    }.get(notes_lang, "Session dialog")
 
     client = get_client()
     response = await client.beta.chat.completions.parse(
         model=settings.openai_model_main,
         messages=[
             {"role": "system", "content": system_with_map},
-            {"role": "user", "content": f"Диалог сессии:\n\n{conversation}"},
+            {"role": "user", "content": f"{dialog_label}:\n\n{conversation}"},
         ],
         response_format=SessionExtraction,
     )
     parsed = response.choices[0].message.parsed
     if parsed is None:
         raise ValueError("structured output returned None")
+
+    # Post-extraction audit: warn if any slot literal was dropped from all
+    # extracted entities/thoughts/memories. Soft for now (just logs) — the
+    # Entity validator (M4) is the hard structural gate at write time.
+    if session_id and redis is not None:
+        try:
+            filled = await slots.list_filled(redis, session_id)
+            _warn_missing_slot_literals(parsed, filled)
+        except Exception as exc:
+            logger.warning("slot-literal audit failed", error=str(exc))
+
     return parsed
+
+
+def _warn_missing_slot_literals(
+    extraction: SessionExtraction,
+    filled: list,  # list[FilledSlot] — avoid circular type import
+) -> None:
+    """Log a warning for each slot whose literal_value is absent from extraction.
+
+    These are cases where the agent's LLM had the literal in its prompt (via
+    `format_filled_list_for_extraction`) but produced no entity carrying it.
+    The literal is still in transcripts (M1), so it's not lost forever — but
+    the graph projection is incomplete and the user can be told.
+    """
+    if not filled:
+        return
+    haystack_parts: list[str] = []
+    for e in extraction.entities:
+        haystack_parts.extend([e.name, *e.aliases, *e.new_facts, *e.updates])
+    for t in extraction.thoughts:
+        haystack_parts.extend([t.title, t.body])
+    for m in extraction.memories:
+        haystack_parts.extend([m.title, m.body])
+    haystack = " ".join(haystack_parts).lower()
+
+    for f in filled:
+        if f.literal_value.lower() not in haystack:
+            logger.warning(
+                "slot literal not preserved in extraction",
+                slot_id=f.slot_id,
+                field=f.field,
+                entity_hint=f.entity_hint,
+                literal=f.literal_value[:80],
+            )
 
 
 # ── vault application ─────────────────────────────────────────────────────────
@@ -140,7 +205,7 @@ async def _apply_entity(entity: EntityInfo, session_id: str) -> str:
     """Adapter: convert legacy EntityInfo (extractor LLM output) to Entity contract,
     then route through the unified write_pipeline.
     """
-    from src.vault.entity import Entity, Relation
+    from src.vault.entity import Entity, Relation, extract_proper_noun_candidates
     from src.vault.write_pipeline import write_entity
 
     note_type: NoteType = _ENTITY_TO_NOTE_TYPE.get(entity.type, "inbox")  # type: ignore[assignment]
@@ -158,14 +223,26 @@ async def _apply_entity(entity: EntityInfo, session_id: str) -> str:
             Relation(field=link.field, target_path=link.target)  # type: ignore[arg-type]
         )
 
+    # Source tokens for proper-noun preservation (M4). Pull from EntityInfo's
+    # own fields — anything the LLM kept here must survive into Entity. This
+    # catches partial drops like name="ресторан" + facts=["работает БЕК"]
+    # → "БЕК" must end up in canonical_name/aliases/facts/one_liner.
+    source_text = " ".join(
+        [entity.name, *entity.aliases, *entity.new_facts, *entity.updates]
+    )
+    source_tokens = extract_proper_noun_candidates(source_text)
+
     try:
-        e = Entity(
-            type=note_type,
-            canonical_name=entity.name,
-            aliases=entity.aliases,
-            one_liner=one_liner,
-            facts=entity.new_facts[1:] if len(entity.new_facts) > 1 else [],
-            relations=relations,
+        e = Entity.model_validate(
+            {
+                "type": note_type,
+                "canonical_name": entity.name,
+                "aliases": entity.aliases,
+                "one_liner": one_liner,
+                "facts": entity.new_facts[1:] if len(entity.new_facts) > 1 else [],
+                "relations": [r.model_dump() for r in relations],
+            },
+            context={"source_tokens": source_tokens},
         )
     except Exception as exc:
         logger.warning(
@@ -367,45 +444,127 @@ async def run_pipeline(
     notify: Callable[[str], Awaitable[None]] | None = None,
 ) -> str:
     """Full session-end pipeline: extract → apply → push. Returns summary for user."""
+    from src.i18n import t
+    from src.session.manager import (
+        get_profile as _get_profile,
+    )
+    from src.session.manager import (
+        get_redis as _get_redis,
+    )
+    from src.session.manager import (
+        get_ui_language as _get_ui_lang,
+    )
+
+    try:
+        _redis = await _get_redis()
+        _profile = await _get_profile(_redis, settings.allowed_user_ids[0])
+        ui_lang = _get_ui_lang(_profile)
+    except Exception:
+        ui_lang = "ru"
+
     if not msgs:
-        return "пустая сессия, ничего не записал"
+        return t("save.empty_result", ui_lang)
 
     logger.info("pipeline start", session_id=session.session_id, msgs=len(msgs))
+
+    # Seal the literal transcript BEFORE any compaction or extraction. Transcript
+    # is the immutable source of truth for "what was said" — it must survive even
+    # if extract() or apply_to_vault() raise. See docs/adr/0001-memory-layers.md.
+    try:
+        from src.session.manager import (
+            get_notes_language as _get_notes_lang,
+        )
+        from src.vault import transcripts
+
+        _notes_lang = _get_notes_lang(_profile)
+        await transcripts.seal_session(
+            session.session_id,
+            msgs,
+            lang=_notes_lang,
+            started_at=session.started_at,
+            ended_at=session.last_msg_at,
+        )
+    except Exception as exc:
+        logger.warning(
+            "transcript seal failed (continuing pipeline)",
+            session_id=session.session_id,
+            error=str(exc),
+        )
 
     # Compact if very long (> 50 msgs — summarise older ones)
     if len(msgs) > 50:
         if notify:
-            await notify("сессия длинная, сжимаю контекст...")
+            await notify(t("save.compressing", ui_lang))
         msgs = await _compact_msgs(msgs)
 
     try:
-        extraction = await extract(msgs)
+        extraction = await extract(msgs, session_id=session.session_id)
     except Exception as exc:
         logger.error("extraction failed", error=str(exc))
-        return f"не смог разобрать сессию: {exc}"
+        return t("pipeline.extract_failed", ui_lang, error=str(exc))
 
     try:
         created = await apply_to_vault(extraction, session.session_id)
     except Exception as exc:
         logger.error("vault apply failed", error=str(exc))
-        return f"не смог записать в vault: {exc}"
+        return t("pipeline.apply_failed", ui_lang, error=str(exc))
 
-    open_q = (
-        "\n\nОткрытые вопросы:\n" + "\n".join(f"• {q}" for q in extraction.open_questions)
-        if extraction.open_questions
-        else ""
-    )
-    summary = (
-        f"Записал: {len(created)} заметок\n"
-        f"Тема: {extraction.topic}\n"
-        f"Итог: {extraction.summary}{open_q}"
+    # Clear filled slots now that they've been consumed by extraction. Pending
+    # slots are user-scoped (not session-scoped) and survive across sessions
+    # intentionally, so a 24h-pending slot answered after a session boundary
+    # still binds.
+    try:
+        from src.session import slots as _slots
+        from src.session.manager import get_redis as _redis_for_cleanup
+
+        _r = await _redis_for_cleanup()
+        await _slots.clear_filled(_r, session.session_id)
+    except Exception as exc:
+        logger.warning("filled slots cleanup failed", error=str(exc))
+
+    if extraction.open_questions:
+        items = "\n".join(f"• {q}" for q in extraction.open_questions)
+        open_q = t("pipeline.open_questions_block", ui_lang, items=items)
+    else:
+        open_q = ""
+    summary = t(
+        "pipeline.summary",
+        ui_lang,
+        count=len(created),
+        topic=extraction.topic,
+        summary=extraction.summary,
+        open_q=open_q,
     )
     logger.info("pipeline done", session_id=session.session_id, notes=len(created))
     return summary
 
 
+_COMPACT_PROMPT = {
+    "ru": "Сожми этот диалог в плотный нарратив, сохрани все факты.",
+    "en": "Compress this dialog into a dense narrative, preserving all facts.",
+    "uz": "Bu muloqotni zich hikoyaga siqib, barcha faktlarni saqla.",
+}
+
+
 async def _compact_msgs(msgs: list[SessionMessage]) -> list[SessionMessage]:
     """Summarise the first 40 messages into one, keep the last 10 verbatim."""
+    from src.session.manager import (
+        get_notes_language as _get_notes_lang,
+    )
+    from src.session.manager import (
+        get_profile as _get_profile,
+    )
+    from src.session.manager import (
+        get_redis as _get_redis,
+    )
+
+    try:
+        _redis = await _get_redis()
+        _profile = await _get_profile(_redis, settings.allowed_user_ids[0])
+        notes_lang = _get_notes_lang(_profile)
+    except Exception:
+        notes_lang = "ru"
+
     client = get_client()
     head = msgs[:-10]
     tail = msgs[-10:]
@@ -415,7 +574,7 @@ async def _compact_msgs(msgs: list[SessionMessage]) -> list[SessionMessage]:
         messages=[
             {
                 "role": "system",
-                "content": "Сожми этот диалог в плотный нарратив, сохрани все факты.",
+                "content": _COMPACT_PROMPT.get(notes_lang, _COMPACT_PROMPT["ru"]),
             },
             {"role": "user", "content": conversation},
         ],

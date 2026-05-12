@@ -10,7 +10,9 @@ import src.tools.misc
 
 # Import tools modules so their _register() calls populate the registry
 import src.tools.obsidian
-import src.tools.scheduler  # noqa: F401
+import src.tools.recall
+import src.tools.scheduler
+import src.tools.slots  # noqa: F401
 from src.config import settings
 from src.logging_setup import setup_logging
 from src.telegram.bot import create_bot_and_dispatcher
@@ -30,6 +32,7 @@ _VAULT_FOLDERS = [
     "80_Themes",
     "90_Attachments/images",
     "90_Attachments/audio",
+    "90_Transcripts",
     "_meta",
 ]
 
@@ -75,6 +78,13 @@ async def main() -> None:
     logger.info("scheduler started")
 
     bot, dp = create_bot_and_dispatcher()
+
+    from src.telegram.commands_meta import register_bot_commands
+
+    try:
+        await register_bot_commands(bot)
+    except Exception as exc:
+        logger.warning("bot commands registration failed", error=str(exc))
 
     from src.session.lifecycle import run_forever
 

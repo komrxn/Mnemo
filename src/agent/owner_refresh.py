@@ -26,6 +26,45 @@ logger = structlog.get_logger()
 
 _OWNER_PATH = "_meta/owner.md"
 
+_OWNER_REFRESH_PROMPTS: dict[str, str] = {
+    "ru": (
+        "Ты обновляешь карточку владельца Mnemo. На вход — дамп его "
+        "работ, важных воспоминаний и тем интересов из vault'а. "
+        'Верни JSON: {"facts": ["факт1", ...]}.\n\n'
+        "facts: 5-10 КЛЮЧЕВЫХ актуальных фактов про САМОГО владельца "
+        "(не про его проекты или знакомых). Конкретно: текущая работа/"
+        "учёба, ключевые жизненные события, главные интересы, цели. "
+        "Если что-то поменялось (новая работа, переезд) — отрази "
+        "актуальное состояние, старое в прошедшем времени."
+    ),
+    "en": (
+        "You're refreshing the owner card for Mnemo. Input — a dump of "
+        "their jobs, important memories and themes from the vault. "
+        'Return JSON: {"facts": ["fact1", ...]}.\n\n'
+        "facts: 5-10 KEY current facts about the OWNER themselves "
+        "(not about their projects or contacts). Concrete: current "
+        "job/study, key life events, main interests, goals. If "
+        "something changed (new job, moved) — reflect the current "
+        "state, with the old one in past tense."
+    ),
+    "uz": (
+        "Sen Mnemo egasining kartochkasini yangilayapsan. Kirish — "
+        "uning ishlari, muhim xotiralari va vault'dagi qiziqish "
+        'mavzularining damp\'i. JSON qaytar: {"facts": ["fakt1", ...]}.\n\n'
+        "facts: EGA haqida 5-10 ta ASOSIY dolzarb fakt (loyihalari "
+        "yoki tanishlari haqida emas). Aniq: hozirgi ish/o'qish, "
+        "asosiy hayot voqealari, asosiy qiziqishlar, maqsadlar. Agar "
+        "biror narsa o'zgargan bo'lsa (yangi ish, ko'chish) — joriy "
+        "holatni ko'rsat, eskisi o'tgan zamonda."
+    ),
+}
+
+_OWNER_REFRESH_LABELS: dict[str, tuple[str, str]] = {
+    "ru": ("Имя владельца", "Дамп vault'а"),
+    "en": ("Owner name", "Vault dump"),
+    "uz": ("Ega ismi", "Vault damp'i"),
+}
+
 
 def should_refresh_after(touched_paths: list[str]) -> bool:
     """Decide whether the freshly-touched paths warrant an owner.md refresh.
@@ -106,27 +145,29 @@ async def refresh_owner_from_vault(owner_name: str) -> bool:
     if not snapshot.strip():
         return False
 
+    # Pull notes_language so the regenerated facts match vault language
+    from src.session.manager import get_notes_language, get_profile, get_redis
+
+    notes_lang = "ru"
+    try:
+        _redis = await get_redis()
+        _profile = await get_profile(_redis, settings.allowed_user_ids[0])
+        notes_lang = get_notes_language(_profile)
+    except Exception:
+        pass
+
+    sys_prompt = _OWNER_REFRESH_PROMPTS.get(notes_lang, _OWNER_REFRESH_PROMPTS["ru"])
+    owner_label, dump_label = _OWNER_REFRESH_LABELS.get(notes_lang, _OWNER_REFRESH_LABELS["ru"])
+
     client = get_client()
     try:
         resp = await client.chat.completions.create(
             model=settings.openai_model_fast,
             messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "Ты обновляешь карточку владельца Mnemo. На вход — дамп его "
-                        "работ, важных воспоминаний и тем интересов из vault'а. "
-                        "Верни JSON: {\"facts\": [\"факт1\", ...]}.\n\n"
-                        "facts: 5-10 КЛЮЧЕВЫХ актуальных фактов про САМОГО владельца "
-                        "(не про его проекты или знакомых). Конкретно: текущая работа/"
-                        "учёба, ключевые жизненные события, главные интересы, цели. "
-                        "Если что-то поменялось (новая работа, переезд) — отрази "
-                        "актуальное состояние, старое в прошедшем времени."
-                    ),
-                },
+                {"role": "system", "content": sys_prompt},
                 {
                     "role": "user",
-                    "content": f"Имя владельца: {owner_name}\n\nДамп vault'а:\n\n{snapshot}",
+                    "content": f"{owner_label}: {owner_name}\n\n{dump_label}:\n\n{snapshot}",
                 },
             ],
             response_format={"type": "json_object"},

@@ -33,9 +33,14 @@ def _doc_id(rel_path: str, content: str) -> str:
 
 
 def _strip_frontmatter_for_chunk(body: str, title: str) -> str:
-    """Тело без YAML и без секции `## Связи` — для чистого embedding."""
-    if "## Связи" in body:
-        body = body.split("## Связи", 1)[0].rstrip()
+    """Body without YAML and without the links section (any language).
+
+    Recognises ru/en/uz variants of the links header so chunks indexed in
+    LightRAG don't contain wikilink boilerplate.
+    """
+    from src.vault.section_headers import strip_links_section
+
+    body = strip_links_section(body)
     return f"# {title}\n\n{body}".strip()
 
 
@@ -63,10 +68,14 @@ def vault_to_custom_kg(rel_paths: list[str]) -> dict[str, Any]:
         full = vault / rel
         if not full.exists() or full.suffix != ".md":
             continue
+        # Transcripts live in 90_Transcripts/ and are document-only (no graph edges).
+        # Filter by path first (cheap) and by frontmatter type (defense in depth).
+        if rel.startswith("90_Transcripts/"):
+            continue
         raw = full.read_text(encoding="utf-8")
         fm, body = parse(raw)
         note_type = str(fm.get("type", "inbox"))
-        if note_type in {"daily", "inbox"}:
+        if note_type in {"daily", "inbox", "transcript"}:
             continue
 
         title = full.stem.replace("-", " ")

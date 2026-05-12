@@ -11,7 +11,9 @@ from aiogram.types import Message
 from aiogram.utils.chat_action import ChatActionSender
 
 from src.config import settings
+from src.i18n import t
 from src.multimodal.vision import describe
+from src.session import manager as session_mgr
 from src.telegram.handlers.text import process_input
 from src.vault import writer as vault_writer
 
@@ -30,10 +32,17 @@ async def handle_photo(message: Message) -> None:
         await _process_photo(message, user_id)
 
 
+_IMAGE_TAG = {"ru": "[изображение", "en": "[image", "uz": "[tasvir"}
+
+
 async def _process_photo(message: Message, user_id: int) -> None:
     if not message.bot or not message.photo:
         return
-    await message.answer("анализирую изображение...")
+    redis = await session_mgr.get_redis()
+    profile = await session_mgr.get_profile(redis, user_id)
+    ui_lang = session_mgr.get_ui_language(profile)
+    notes_lang = session_mgr.get_notes_language(profile)
+    await message.answer(t("multimodal.analyzing_image", ui_lang))
 
     # Highest resolution = last element
     photo = message.photo[-1]
@@ -55,14 +64,15 @@ async def _process_photo(message: Message, user_id: int) -> None:
         await vault_writer.write_attachment(rel_path, img_data)
         meta = {"attachment": rel_path}
 
-        content = f"[изображение: {rel_path}]\n\n{description}"
+        tag = _IMAGE_TAG.get(notes_lang, _IMAGE_TAG["en"])
+        content = f"{tag}: {rel_path}]\n\n{description}"
         if message.caption:
-            content = f"[изображение: {rel_path}] {message.caption}\n\n{description}"
+            content = f"{tag}: {rel_path}] {message.caption}\n\n{description}"
 
         logger.info("image described", user_id=user_id, path=rel_path)
     except Exception as exc:
         logger.error("photo processing failed", error=str(exc))
-        await message.answer(f"не смог обработать изображение: {exc}")
+        await message.answer(t("multimodal.image_failed", ui_lang, error=str(exc)))
         return
     finally:
         tmp_path.unlink(missing_ok=True)

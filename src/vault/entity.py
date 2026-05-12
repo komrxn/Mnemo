@@ -9,16 +9,24 @@ markdown-in-body) become structurally impossible.
 
 from __future__ import annotations
 
+import re
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
 
 from src.vault.frontmatter import NoteType
 
 # Single-value relations: exactly one target each.
-SINGLE_VALUE_RELATIONS = frozenset({
-    "owner", "works_at", "for_job", "for_project", "about_person", "parent_theme",
-})
+SINGLE_VALUE_RELATIONS = frozenset(
+    {
+        "owner",
+        "works_at",
+        "for_job",
+        "for_project",
+        "about_person",
+        "parent_theme",
+    }
+)
 # List-value relations: 0+ targets, may repeat the field across multiple Relations.
 LIST_VALUE_RELATIONS = frozenset({"themes", "related_people"})
 
@@ -81,6 +89,38 @@ def _has_owner_name_fragment(name: str, owner_name: str | None = None) -> bool:
     return owner_name.lower() in name.lower() and len(name) > len(owner_name) + 5
 
 
+# Proper-noun detection — closes the BEK bug. The LLM extractor sometimes
+# drops uppercase / mixed-case tokens it doesn't recognize ("Ресторан БЕК"
+# becomes "ресторан (семейный)"). We reject Entities that have dropped any
+# such token from the source.
+#
+# Two patterns:
+#   1. ALL-CAPS ≥2 letters — BEK, GPT, ИИ, FBI, LegAI's "AI" half.
+#   2. Mixed-case with internal capital — LegAI, TikTok, iPhone, jPanel.
+# Title-case words (Forbes, Mnemo, Anna) are NOT flagged: they survive
+# normalization in practice, and flagging them produces too many false
+# positives on ordinary capitalized words (Я, Это, The).
+_ALLCAPS_RE = re.compile(r"\b[A-ZА-ЯЁ]{2,}\b")
+_INTERNAL_CAP_RE = re.compile(
+    r"\b[A-ZА-ЯЁa-zа-яё]*[a-zа-яё][A-ZА-ЯЁ][A-ZА-ЯЁa-zа-яё0-9]*\b"
+)
+
+
+def extract_proper_noun_candidates(text: str) -> set[str]:
+    """Return tokens from `text` that look like preservation-critical proper nouns.
+
+    Includes ALL-CAPS acronyms (БЕК, GPT) and mixed-case names with an
+    internal capital (LegAI, iPhone). Excludes plain Title-case words.
+    Returned tokens are stripped of trailing punctuation.
+    """
+    candidates: set[str] = set()
+    for m in _ALLCAPS_RE.findall(text):
+        candidates.add(m)
+    for m in _INTERNAL_CAP_RE.findall(text):
+        candidates.add(m)
+    return candidates
+
+
 class Entity(BaseModel):
     """The single contract for writing a note to vault.
 
@@ -140,6 +180,37 @@ class Entity(BaseModel):
         return s
 
     @model_validator(mode="after")
+    def _no_lost_proper_nouns(self, info: ValidationInfo) -> Entity:
+        """Reject Entities that dropped a proper noun from their source context.
+
+        Activated only when caller passes `context={"source_tokens": {...}}` to
+        `Entity.model_validate(...)`. The extractor populates `source_tokens`
+        from raw user messages (`extract_proper_noun_candidates`). If any token
+        is missing from canonical_name / aliases / one_liner / facts, we raise.
+
+        This is the structural guarantee for M4: even if the LLM ignores the
+        slot-binding nudge (M2) and the prompt instruction, the entity can't
+        be written to disk with "БЕК" silently removed — pydantic refuses.
+        """
+        ctx = info.context or {}
+        source_tokens: set[str] = ctx.get("source_tokens") or set()
+        if not source_tokens:
+            return self
+
+        haystack_parts = [self.canonical_name, self.one_liner, *self.aliases, *self.facts]
+        haystack = " ".join(haystack_parts).lower()
+
+        lost = [tok for tok in source_tokens if tok.lower() not in haystack]
+        if lost:
+            lost_list = ", ".join(sorted(lost))
+            raise ValueError(
+                f"proper nouns dropped from source: {lost_list}. "
+                f"Preserve them in canonical_name or aliases (these are likely "
+                f"names, acronyms, or brands the user explicitly mentioned)."
+            )
+        return self
+
+    @model_validator(mode="after")
     def _enforce_owner_anchor(self) -> Entity:
         """Every type except `person` MUST have an owner relation.
 
@@ -184,17 +255,19 @@ class Entity(BaseModel):
         return cleaned[:25]
 
 
-def render_body(entity: Entity) -> str:
+def render_body(entity: Entity, notes_lang: str = "ru") -> str:
     """Programmatic markdown render — single source of body formatting.
 
     Agents never write the body string. We assemble it from one_liner + facts.
-    The `## Связи` section is appended later by `linking.render_links_section`
+    The links section is appended later by `linking.render_links_section`
     based on frontmatter, so we don't include it here.
     """
+    from src.vault.section_headers import facts_header
+
     lines = [entity.one_liner]
     if entity.facts:
         lines.append("")
-        lines.append("## Факты")
+        lines.append(facts_header(notes_lang))
         lines.append("")
         for fact in entity.facts:
             lines.append(f"- {fact}")

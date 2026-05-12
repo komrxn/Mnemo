@@ -1,0 +1,137 @@
+# English (en)
+
+start:
+  already_onboarded: |-
+    alive. To restart onboarding from scratch — first delete
+    <code>_meta/portrait.md</code> and <code>_meta/owner.md</code> in Obsidian,
+    then run /start again.
+  pick_ui_language: |-
+    👋 Hi! I'm your personal AI with long-term memory.
+
+    <b>What language should we talk in?</b>
+
+    Выбери язык / Suhbat tilini tanlang:
+  ui_language_set: |-
+    Got it, we'll speak English. Now — <b>what should I call myself?</b>
+    For example: Max, Mia, Mnemo — or just Assistant.
+
+onboarding:
+  ask_personality: |-
+    I'll be <b>{{ bot_name }}</b>! Now pick a <b>communication style</b>:
+
+    1 — Friendly and warm
+    2 — Strict and to the point
+    3 — Slightly sarcastic
+    4 — Like a mentor (asks questions, guides)
+    5 — Custom style (just write it)
+  ask_owner_name: |-
+    Got it! Now — <b>what's your name?</b>
+
+    Your name or nickname — so I address you correctly.
+  ask_notes_language: |-
+    Nice to meet you, <b>{{ owner_name }}</b>! One more question — <b>what language should I write your notes in</b>?
+
+    🇷🇺 <b>Русский</b> — notes in Russian
+    🇬🇧 <b>English</b> — notes in English
+    🇺🇿 <b>O'zbekcha</b> — yozuvlar o'zbekcha
+
+    This matters: so the graph doesn't become a mess of mixed languages.
+  ask_portrait: |-
+    Okay, notes language: <b>{{ lang_label }}</b>. And finally — <b>tell me about yourself</b>:
+
+    Who you are, what you do, which projects and people matter,
+    interests, values, goals. The more detail, the smarter I'll be from day one.
+  forced_end: |-
+    Wrap up what you started — we can clarify details later in normal chat.
+  loop_force_end: |-
+    Okay, I notice we're going in circles — let's just start chatting and
+    you can fill in details as we go. I'll remember everything.
+
+personality:
+  friendly: Friendly and warm — supportive, positive, makes the dialog comfortable
+  direct: Strict and to the point — minimum fluff, facts and actions only
+  sarcastic: Slightly sarcastic — witty, occasionally teases, but always on point
+  mentor: Like a mentor — asks questions, helps you think for yourself, doesn't hand out answers
+
+save:
+  no_active_session: no active session
+  empty_session: session is empty, nothing to save
+  processing: processing session...
+  shifting: 'I see a topic shift — saving the previous session...'
+  failed: '⚠ failed to process the session: {{ error }}'
+  empty_result: empty session, nothing recorded
+  compressing: session is long, compressing context...
+
+pipeline:
+  extract_failed: "couldn't process session: {{ error }}"
+  apply_failed: "couldn't write to vault: {{ error }}"
+  summary: |-
+    Recorded: {{ count }} notes
+    Topic: {{ topic }}
+    Summary: {{ summary }}{{ open_q }}
+  open_questions_block: |2-
+
+    Open questions:
+    {{ items }}
+
+undo:
+  refuse_onboarding: |-
+    ⛔ the last commit touched onboarding files (owner/portrait).
+    I won't roll those back automatically. If you really need to —
+    handle it manually via git.
+
+lang:
+  current: |-
+    Current interface language: <b>{{ ui }}</b>
+    Current notes language: <b>{{ notes }}</b>
+
+    What do we change?
+  pick_ui: 'Pick interface language:'
+  pick_notes: 'Pick notes language:'
+  ui_updated: 'Interface language: <b>{{ name }}</b>.'
+  notes_updated: 'Notes language: <b>{{ name }}</b>. New notes will be in this language.'
+  cancelled: cancelled
+  unknown_action: not sure what to change
+
+multimodal:
+  transcribing: 'transcribing...'
+  no_speech: couldn't recognize speech
+  analyzing_image: 'analyzing image...'
+  image_failed: 'image processing failed: {{ error }}'
+
+confirm:
+  confirmed: Confirmed
+  cancelled: Cancelled
+  delete_note: 'Delete note {{ path }}?'
+  delete_cancelled: deletion cancelled
+  button_yes: Confirm
+  button_no: Cancel
+
+scheduler:
+  conflict_alert: |-
+    ⚠️ Conflict during git pull in vault. Resolve manually in the repo.
+    Sync is paused until resolved.
+  no_session_log: no session history yet
+
+language_label:
+  ru: Русский
+  en: English
+  uz: O'zbekcha
+
+cmd_descriptions:
+  start: Start or resume
+  save: Save current session
+  undo: Revert the last commit
+  lang: Change interface or notes language
+
+errors:
+  tool_error: 'tool error {{ name }}: {{ error }}'
+
+ui_buttons:
+  ui_language: Interface language
+  notes_language: Notes language
+  cancel: Cancel
+
+section_headers:
+  facts: Facts
+  links: Links

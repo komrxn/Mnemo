@@ -44,10 +44,13 @@ async def write_entity(entity: Entity, session_id: str = "") -> WriteResult:
     Returns WriteResult describing what happened. Never raises on relation
     issues — invalid relations are logged and skipped, not fatal.
     """
+    from src.session.manager import get_notes_language
+
     # Owner-name guard: if canonical_name contains owner_name, the agent
     # probably wrote a description like "профиль komron khakimov" instead
     # of a real entity name. We can't catch this in pydantic Entity
     # validator (no profile context), but we can here.
+    notes_lang = "ru"
     try:
         from src.config import settings as _s
         from src.session.manager import get_profile, get_redis
@@ -55,6 +58,7 @@ async def write_entity(entity: Entity, session_id: str = "") -> WriteResult:
         _redis = await get_redis()
         _user_id = _s.allowed_user_ids[0]
         _profile = await get_profile(_redis, _user_id)
+        notes_lang = get_notes_language(_profile)
         owner_name = str(_profile.get("owner_name", "")).strip()
         if owner_name and len(owner_name) >= 3:
             low_name = entity.canonical_name.lower()
@@ -98,14 +102,12 @@ async def write_entity(entity: Entity, session_id: str = "") -> WriteResult:
                 fm_old, _ = parse(raw)
                 existing_aliases = fm_old.get("aliases", []) or []
                 merged = sorted({*existing_aliases, *new_aliases})
-                await writer.update_frontmatter(
-                    existing_path, {"aliases": merged}, session_id
-                )
+                await writer.update_frontmatter(existing_path, {"aliases": merged}, session_id)
             except Exception as exc:
                 logger.warning("alias merge failed", error=str(exc))
 
     # Step 2 — body
-    body = render_body(entity)
+    body = render_body(entity, notes_lang=notes_lang)
 
     # Step 3 — frontmatter (singles + aliases + type)
     # Owner-anchor is now guaranteed at Entity level (model_validator), so
@@ -118,7 +120,7 @@ async def write_entity(entity: Entity, session_id: str = "") -> WriteResult:
     if reader.note_exists(rel_path):
         # Existing note — append body and merge frontmatter
         if entity.facts:
-            await writer.append_to_note(rel_path, _facts_block(entity), session_id)
+            await writer.append_to_note(rel_path, _facts_block(entity, notes_lang), session_id)
         await writer.update_frontmatter(rel_path, fm, session_id)
         action = "appended"
         sha = "0" * 8  # update returns sha; we re-fetch after
@@ -169,11 +171,13 @@ async def write_entity(entity: Entity, session_id: str = "") -> WriteResult:
     return WriteResult(path=rel_path, action=action, sha=sha)
 
 
-def _facts_block(entity: Entity) -> str:
+def _facts_block(entity: Entity, notes_lang: str = "ru") -> str:
     """Produce just the facts block (used when appending to existing note)."""
+    from src.vault.section_headers import facts_header
+
     if not entity.facts:
         return entity.one_liner
-    lines = [entity.one_liner, "", "## Факты", ""]
+    lines = [entity.one_liner, "", facts_header(notes_lang), ""]
     for fact in entity.facts:
         lines.append(f"- {fact}")
     return "\n".join(lines)

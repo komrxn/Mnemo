@@ -283,20 +283,53 @@ async def _create_note(p: CreateNoteParams, session_id: str = "") -> str:
             "(что это, зачем, в каком статусе)."
         )
 
+    # M4: feed proper-noun source_tokens from filled slots — the Entity
+    # validator will reject this create if a slot literal (e.g. "БЕК") was
+    # registered earlier but isn't preserved in title/aliases/one_liner.
+    source_tokens = await _source_tokens_from_slots(session_id)
+
     try:
-        entity = Entity(
-            type=p.type,
-            canonical_name=p.title,
-            aliases=aliases_in,
-            one_liner=one_liner_fallback,
-            facts=[],  # legacy create_note doesn't have facts; use append_to_note for those
-            relations=relations_in,
+        entity = Entity.model_validate(
+            {
+                "type": p.type,
+                "canonical_name": p.title,
+                "aliases": aliases_in,
+                "one_liner": one_liner_fallback,
+                "facts": [],
+                "relations": [r.model_dump() for r in relations_in],
+            },
+            context={"source_tokens": source_tokens},
         )
     except Exception as exc:
         return f"⛔ невалидные параметры: {exc}"
 
     result = await write_entity(entity, session_id)
     return f"{result.action}: {result.path}"
+
+
+async def _source_tokens_from_slots(session_id: str) -> set[str]:
+    """Extract proper-noun tokens from any filled-slot literals for this session.
+
+    Returns empty set when session_id is empty or there are no filled slots —
+    in which case the Entity validator's proper-noun guard is silent (legacy
+    behavior preserved).
+    """
+    if not session_id:
+        return set()
+    try:
+        from src.session import slots
+        from src.session.manager import get_redis
+        from src.vault.entity import extract_proper_noun_candidates
+
+        redis = await get_redis()
+        filled = await slots.list_filled(redis, session_id)
+        tokens: set[str] = set()
+        for f in filled:
+            tokens |= extract_proper_noun_candidates(f.literal_value)
+        return tokens
+    except Exception as exc:
+        logger.warning("source_tokens fetch failed", session_id=session_id, error=str(exc))
+        return set()
 
 
 async def _enqueue_index(paths: list[str]) -> None:
@@ -338,11 +371,32 @@ async def _add_link(p: AddLinkParams, session_id: str = "") -> str:
         if wikilink in note.body:
             results.append(f"{src}: ссылка уже есть")
             continue
-        # Append to existing links section or add one
-        if "## Связи" in note.body:
+        # Append to existing links section (any language) or add one
+        from src.vault.section_headers import find_links_marker, links_header
+
+        existing_marker = find_links_marker(note.body)
+        if existing_marker:
             body = note.body.rstrip() + f"\n{wikilink}"
         else:
-            body = note.body.rstrip() + f"\n\n## Связи\n\n{wikilink}"
+            # New section uses notes_language from profile (best-effort)
+            try:
+                from src.config import settings as _s
+                from src.session.manager import (
+                    get_notes_language as _gnl,
+                )
+                from src.session.manager import (
+                    get_profile as _gp,
+                )
+                from src.session.manager import (
+                    get_redis as _gr,
+                )
+
+                _r = await _gr()
+                _p = await _gp(_r, _s.allowed_user_ids[0])
+                _nl = _gnl(_p)
+            except Exception:
+                _nl = "ru"
+            body = note.body.rstrip() + f"\n\n{links_header(_nl)}\n\n{wikilink}"
         raw = (Path(settings.vault_path) / src).read_text(encoding="utf-8")
         fm_dict, _ = parse(raw)
         (Path(settings.vault_path) / src).write_text(serialize(fm_dict, body), encoding="utf-8")

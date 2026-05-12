@@ -5,7 +5,110 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from src.vault.entity import Entity, Relation, render_body, split_relations
+from src.vault.entity import (
+    Entity,
+    Relation,
+    extract_proper_noun_candidates,
+    render_body,
+    split_relations,
+)
+
+# ── proper-noun preservation (M4 of memory-layers plan) ──────────────────────
+
+
+def test_extract_proper_nouns_catches_allcaps() -> None:
+    tokens = extract_proper_noun_candidates("работаю в БЕК и GPT")
+    assert "БЕК" in tokens
+    assert "GPT" in tokens
+
+
+def test_extract_proper_nouns_catches_internal_caps() -> None:
+    tokens = extract_proper_noun_candidates("LegAI and iPhone are good")
+    assert "LegAI" in tokens
+    assert "iPhone" in tokens
+
+
+def test_extract_proper_nouns_skips_plain_title_case() -> None:
+    """Forbes / Mnemo / Анна survive normalization in practice — flagging them
+    would produce too many false positives on ordinary capitalized words."""
+    tokens = extract_proper_noun_candidates("Forbes Mnemo Анна Москва")
+    # None of these have an internal cap or are all-caps
+    assert "Forbes" not in tokens
+    assert "Mnemo" not in tokens
+    assert "Анна" not in tokens
+
+
+def test_entity_rejects_when_proper_noun_dropped() -> None:
+    """The BEK regression anchor — Entity construction MUST fail if a known
+    proper noun from the source is missing from all fields."""
+    with pytest.raises(ValidationError, match="proper nouns dropped"):
+        Entity.model_validate(
+            {
+                "type": "job",
+                "canonical_name": "ресторан",
+                "aliases": [],
+                "one_liner": "семейный ресторан.",
+                "facts": [],
+            },
+            context={"source_tokens": {"БЕК"}},
+        )
+
+
+def test_entity_accepts_when_proper_noun_in_aliases() -> None:
+    """Preserving the token in aliases is sufficient — name doesn't have to be it."""
+    e = Entity.model_validate(
+        {
+            "type": "job",
+            "canonical_name": "ресторан БЕК",
+            "aliases": ["BEK"],
+            "one_liner": "семейный ресторан.",
+            "facts": [],
+        },
+        context={"source_tokens": {"БЕК", "BEK"}},
+    )
+    assert e.canonical_name == "ресторан БЕК"
+
+
+def test_entity_accepts_when_proper_noun_in_facts() -> None:
+    e = Entity.model_validate(
+        {
+            "type": "memory",
+            "canonical_name": "переезд 2024",
+            "aliases": [],
+            "one_liner": "переехал в Лиссабон.",
+            "facts": ["работал в LegAI до переезда"],
+        },
+        context={"source_tokens": {"LegAI"}},
+    )
+    assert e.canonical_name == "переезд 2024"
+
+
+def test_entity_skips_check_without_source_tokens() -> None:
+    """No context = legacy behavior. Existing callers don't need to change."""
+    e = Entity(
+        type="job",
+        canonical_name="ресторан",
+        one_liner="семейный ресторан.",
+    )
+    assert e.canonical_name == "ресторан"
+
+
+def test_entity_lists_all_dropped_tokens_in_error() -> None:
+    """If multiple tokens are missing, error message names them all (for retry)."""
+    with pytest.raises(ValidationError) as excinfo:
+        Entity.model_validate(
+            {
+                "type": "memory",
+                "canonical_name": "переезд",
+                "aliases": [],
+                "one_liner": "большой переезд осенью.",
+                "facts": [],
+            },
+            context={"source_tokens": {"БЕК", "LegAI"}},
+        )
+    msg = str(excinfo.value)
+    assert "БЕК" in msg
+    assert "LegAI" in msg
 
 
 def test_entity_rejects_third_person_canonical_name() -> None:

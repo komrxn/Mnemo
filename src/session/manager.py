@@ -165,13 +165,44 @@ async def get_msgs(redis: Redis, session_id: str) -> list[SessionMessage]:
 
 async def get_profile(redis: Redis, user_id: int) -> dict[str, object]:
     raw = await redis.get(key_profile(user_id))
-    return orjson.loads(raw) if raw else {}
+    if not raw:
+        return {}
+    profile: dict[str, object] = orjson.loads(raw)
+    _apply_language_migration(profile)
+    return profile
 
 
 async def update_profile(redis: Redis, user_id: int, patch: dict[str, object]) -> None:
     profile = await get_profile(redis, user_id)
     profile.update(patch)
     await redis.set(key_profile(user_id), orjson.dumps(profile))
+
+
+def _apply_language_migration(profile: dict[str, object]) -> None:
+    """Backfill ui_language and notes_language for profiles created before i18n.
+
+    - ui_language: default "ru" for existing users (per IMPLEMENTATION_PLAN_V5 §4.2)
+    - notes_language: derive from legacy `vault_language` (ru/en/mixed). "mixed"
+      collapses to "ru" since v5 dropped the mixed option in favor of explicit choice.
+    """
+    if "ui_language" not in profile:
+        profile["ui_language"] = "ru"
+    if "notes_language" not in profile:
+        legacy = profile.get("vault_language")
+        if legacy in ("ru", "en", "uz"):
+            profile["notes_language"] = legacy
+        else:
+            profile["notes_language"] = "ru"
+
+
+def get_ui_language(profile: dict[str, object]) -> str:
+    val = profile.get("ui_language")
+    return val if isinstance(val, str) and val in ("ru", "en", "uz") else "ru"
+
+
+def get_notes_language(profile: dict[str, object]) -> str:
+    val = profile.get("notes_language")
+    return val if isinstance(val, str) and val in ("ru", "en", "uz") else "ru"
 
 
 async def scan_idle(redis: Redis, timeout_min: int) -> list[tuple[int, ActiveSession]]:

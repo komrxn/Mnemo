@@ -101,11 +101,16 @@ async def add_typed_link(
     return True
 
 
-def render_links_section(fm: dict, body: str) -> str:  # type: ignore[type-arg]
-    """Regenerate the '## Связи' section in body from LINK_FIELDS frontmatter."""
-    marker = "\n## Связи\n"
-    if marker in body:
-        body = body.split(marker)[0].rstrip() + "\n"
+def render_links_section(fm: dict, body: str, notes_lang: str = "ru") -> str:  # type: ignore[type-arg]
+    """Regenerate the links section in body from LINK_FIELDS frontmatter.
+
+    Header text is localized per notes_lang. Existing sections in any of the
+    three supported languages are recognized and replaced.
+    """
+    from src.vault.section_headers import links_header, strip_links_section
+
+    body = strip_links_section(body).rstrip() + "\n"
+    header = links_header(notes_lang)
 
     items: list[str] = []
     for field in LINK_FIELDS:
@@ -121,4 +126,4 @@ def render_links_section(fm: dict, body: str) -> str:  # type: ignore[type-arg]
     if not items:
         return body
 
-    return body.rstrip() + "\n\n## Связи\n\n" + "\n".join(items) + "\n"
+    return body.rstrip() + f"\n\n{header}\n\n" + "\n".join(items) + "\n"

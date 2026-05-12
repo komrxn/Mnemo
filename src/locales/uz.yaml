@@ -1,0 +1,137 @@
+# Uzbek Latin (uz) — DRAFT, awaiting native speaker review
+
+start:
+  already_onboarded: |-
+    tirik. Boshidan boshlash uchun avval Obsidian'da
+    <code>_meta/portrait.md</code> va <code>_meta/owner.md</code> fayllarini o'chir,
+    keyin /start ni qayta yubor.
+  pick_ui_language: |-
+    👋 Salom! Men sening uzoq xotirali shaxsiy AI'ngman.
+
+    <b>Qaysi tilda gaplashamiz?</b>
+
+    Choose your interface language / Выбери язык:
+  ui_language_set: |-
+    Yaxshi, o'zbekcha gaplashamiz. Endi — <b>meni qanday chaqirasan?</b>
+    Masalan: Max, Mia, Mnemo — yoki shunchaki Yordamchi.
+
+onboarding:
+  ask_personality: |-
+    Men <b>{{ bot_name }}</b> bo'laman! Endi <b>muloqot uslubini</b> tanla:
+
+    1 — Do'stona va iliq
+    2 — Qat'iy va aniq, faqat ishga oid
+    3 — Bir oz kinoyali
+    4 — Murabbiy kabi (savol beradi, yo'naltiradi)
+    5 — O'z uslubing (shunchaki yoz)
+  ask_owner_name: |-
+    Tushundim! Endi — <b>isming nima?</b>
+
+    Ism yoki taxallus — to'g'ri murojaat qilishim uchun.
+  ask_notes_language: |-
+    Tanishganimdan xursandman, <b>{{ owner_name }}</b>! Yana bir savol — <b>yozuvlaringni qaysi tilda yozay</b>?
+
+    🇷🇺 <b>Русский</b> — yozuvlar rus tilida
+    🇬🇧 <b>English</b> — notes in English
+    🇺🇿 <b>O'zbekcha</b> — yozuvlar o'zbekcha
+
+    Bu muhim: graf turli tillardan iborat tartibsizlikka aylanmasligi uchun.
+  ask_portrait: |-
+    Yaxshi, yozuvlar tili: <b>{{ lang_label }}</b>. Va oxirgi — <b>o'zing haqingda gapir</b>:
+
+    Kim sen, nima bilan shug'ullanasan, qaysi loyihalar va odamlar muhim,
+    qiziqishlar, qadriyatlar, maqsadlar. Qanchalik batafsil bo'lsa, birinchi kundanoq aqlliroq bo'laman.
+  forced_end: |-
+    Boshlaganingni yakunla — keyin oddiy suhbatda tafsilotlarni aniqlashtirsa bo'ladi.
+  loop_force_end: |-
+    Mayli, men aylanib yurganimni payqadim — keling, suhbatlashishni boshlaylik,
+    tafsilotlarni yo'lda qo'shasan. Hammasini eslab qolaman.
+
+personality:
+  friendly: Do'stona va iliq — qo'llab-quvvatlovchi, ijobiy, suhbatda qulaylik yaratadi
+  direct: Qat'iy va ishga oid — keraksiz so'zlarsiz, faqat faktlar va harakatlar
+  sarcastic: Bir oz kinoyali — hozirjavob, ba'zan istehzo qiladi, lekin har doim ishga oid
+  mentor: Murabbiy kabi — savol beradi, mustaqil fikrlashga yordam beradi, tayyor javob bermaydi
+
+save:
+  no_active_session: faol sessiya yo'q
+  empty_session: sessiya bo'sh, saqlashga hech narsa yo'q
+  processing: sessiyani qayta ishlayapman...
+  shifting: 'mavzu o''zgarganini ko''ryapman — oldingi sessiyani saqlayapman...'
+  failed: '⚠ sessiyani qayta ishlay olmadim: {{ error }}'
+  empty_result: bo'sh sessiya, hech narsa yozilmadi
+  compressing: sessiya uzun, kontekstni siqyapman...
+
+pipeline:
+  extract_failed: "sessiyani qayta ishlay olmadim: {{ error }}"
+  apply_failed: "vault'ga yoza olmadim: {{ error }}"
+  summary: |-
+    Yozildi: {{ count }} yozuv
+    Mavzu: {{ topic }}
+    Xulosa: {{ summary }}{{ open_q }}
+  open_questions_block: |2-
+
+    Ochiq savollar:
+    {{ items }}
+
+undo:
+  refuse_onboarding: |-
+    ⛔ oxirgi commit onboarding fayllariga (owner/portrait) tegdi.
+    Men ularni avtomatik qaytarmayman. Agar haqiqatan kerak bo'lsa —
+    git orqali qo'lda hal qil.
+
+lang:
+  current: |-
+    Joriy interfeys tili: <b>{{ ui }}</b>
+    Joriy yozuvlar tili: <b>{{ notes }}</b>
+
+    Nimani o'zgartiramiz?
+  pick_ui: 'Interfeys tilini tanla:'
+  pick_notes: 'Yozuvlar tilini tanla:'
+  ui_updated: 'Interfeys tili: <b>{{ name }}</b>.'
+  notes_updated: 'Yozuvlar tili: <b>{{ name }}</b>. Yangi yozuvlar shu tilda bo''ladi.'
+  cancelled: bekor qilindi
+  unknown_action: nimani o'zgartirishni tushunmadim
+
+multimodal:
+  transcribing: 'transkripsiya qilyapman...'
+  no_speech: nutqni taniy olmadim
+  analyzing_image: 'tasvirni tahlil qilyapman...'
+  image_failed: 'tasvirni qayta ishlay olmadim: {{ error }}'
+
+confirm:
+  confirmed: Tasdiqlandi
+  cancelled: Bekor qilindi
+  delete_note: 'Yozuv {{ path }} o''chirilsinmi?'
+  delete_cancelled: o'chirish bekor qilindi
+  button_yes: Tasdiqlash
+  button_no: Bekor qilish
+
+scheduler:
+  conflict_alert: |-
+    ⚠️ Vault'da git pull paytida konflikt. Repoda qo'lda hal qil.
+    Hal bo'lmaguncha sinxronizatsiya to'xtatildi.
+  no_session_log: hali sessiya tarixi yo'q
+
+language_label:
+  ru: Русский
+  en: English
+  uz: O'zbekcha
+
+cmd_descriptions:
+  start: Boshlash yoki davom etish
+  save: Joriy sessiyani saqlash
+  undo: Oxirgi commit'ni qaytarish
+  lang: Interfeys yoki yozuvlar tilini o'zgartirish
+
+errors:
+  tool_error: 'asbob xatosi {{ name }}: {{ error }}'
+
+ui_buttons:
+  ui_language: Interfeys tili
+  notes_language: Yozuvlar tili
+  cancel: Bekor qilish
+
+section_headers:
+  facts: Faktlar
+  links: Bog'lanishlar

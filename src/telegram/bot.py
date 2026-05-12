@@ -7,7 +7,7 @@ import structlog
 from aiogram import BaseMiddleware, Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.types import CallbackQuery, TelegramObject
+from aiogram.types import CallbackQuery, Message, TelegramObject
 
 from src.config import settings
 from src.telegram.handlers.commands import router as commands_router
@@ -49,7 +49,7 @@ class WhitelistMiddleware(BaseMiddleware):
 @_confirm_router.callback_query(F.data.startswith("confirm:"))
 async def handle_confirm_callback(callback: CallbackQuery) -> None:
     """Handle inline keyboard confirmation buttons."""
-    if callback.data is None:
+    if callback.data is None or callback.from_user is None:
         return
     # data format: "confirm:<correlation_id>:yes|no"
     parts = callback.data.split(":")
@@ -58,12 +58,18 @@ async def handle_confirm_callback(callback: CallbackQuery) -> None:
     _, correlation_id, answer = parts
     confirmed = answer == "yes"
 
+    from src.i18n import t
     from src.safety.confirmations import publish_answer
+    from src.session import manager as session_mgr
 
     await publish_answer(correlation_id, confirmed)
 
-    label = "Подтверждено" if confirmed else "Отменено"
-    if callback.message:
+    redis = await session_mgr.get_redis()
+    profile = await session_mgr.get_profile(redis, callback.from_user.id)
+    ui_lang = session_mgr.get_ui_language(profile)
+    label = t("confirm.confirmed" if confirmed else "confirm.cancelled", ui_lang)
+
+    if isinstance(callback.message, Message):
         await callback.message.edit_reply_markup(reply_markup=None)
     await callback.answer(label)
     logger.info("confirmation answered", correlation_id=correlation_id, confirmed=confirmed)

@@ -8,7 +8,16 @@ from pydantic import BaseModel
 from slugify import slugify
 
 NoteType = Literal[
-    "task", "thought", "person", "job", "project", "memory", "theme", "daily", "inbox"
+    "task",
+    "thought",
+    "person",
+    "job",
+    "project",
+    "memory",
+    "theme",
+    "daily",
+    "inbox",
+    "transcript",
 ]
 NoteStatus = Literal["open", "done", "archived"]
 

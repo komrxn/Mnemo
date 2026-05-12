@@ -45,7 +45,7 @@ async def full_reindex() -> None:
         m
         for m in vault.rglob("*.md")
         if not str(m.relative_to(vault)).startswith(
-            ("_meta/MOC_", "_meta/ontology", "_meta/portrait")
+            ("_meta/MOC_", "_meta/ontology", "_meta/portrait", "90_Transcripts/")
         )
     ]
     rel_paths = [str(m.relative_to(vault)) for m in all_md]

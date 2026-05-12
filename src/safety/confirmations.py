@@ -21,16 +21,20 @@ async def request_confirmation(user_id: int, question: str) -> bool:
 
     Returns True if user confirmed, False otherwise.
     """
+    from src.session.manager import get_profile, get_ui_language
     from src.telegram.bot import get_bot
     from src.telegram.keyboards import confirm_keyboard
 
     correlation_id = uuid.uuid4().hex[:12]
     bot = get_bot()
+    redis = await get_redis()
+    profile = await get_profile(redis, user_id)
+    ui_lang = get_ui_language(profile)
 
     await bot.send_message(
         user_id,
         question,
-        reply_markup=confirm_keyboard(correlation_id),
+        reply_markup=confirm_keyboard(correlation_id, ui_lang),
     )
 
     redis = await get_redis()

@@ -11,7 +11,9 @@ from aiogram.types import Audio, Message, Voice
 from aiogram.utils.chat_action import ChatActionSender
 
 from src.config import settings
+from src.i18n import t
 from src.multimodal.whisper import transcribe
+from src.session import manager as session_mgr
 from src.telegram.handlers.text import process_input
 from src.vault import writer as vault_writer
 
@@ -29,9 +31,12 @@ async def handle_voice(message: Message) -> None:
         return
 
     user_id = message.from_user.id
+    redis = await session_mgr.get_redis()
+    profile = await session_mgr.get_profile(redis, user_id)
+    ui_lang = session_mgr.get_ui_language(profile)
 
     async with ChatActionSender.typing(bot=message.bot, chat_id=user_id):
-        await message.answer("транскрибирую...")
+        await message.answer(t("multimodal.transcribing", ui_lang))
 
         file_info = await message.bot.get_file(voice.file_id)
         suffix = ".ogg" if message.voice else ".mp3"
@@ -46,7 +51,7 @@ async def handle_voice(message: Message) -> None:
             tmp_path.unlink(missing_ok=True)
 
         if not transcript.strip():
-            await message.answer("не смог распознать речь")
+            await message.answer(t("multimodal.no_speech", ui_lang))
             return
 
         try:
@@ -63,9 +68,12 @@ async def handle_voice(message: Message) -> None:
 
         logger.info("transcribed", user_id=user_id, chars=len(transcript))
 
+        notes_lang = session_mgr.get_notes_language(profile)
+        tag = {"ru": "[голосовое]", "en": "[voice]", "uz": "[ovozli]"}.get(notes_lang, "[voice]")
+
         await process_input(
             user_id,
-            f"[голосовое] {transcript}",
+            f"{tag} {transcript}",
             message.answer,
             kind="voice",
             meta=meta,

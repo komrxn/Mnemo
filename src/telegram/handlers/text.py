@@ -14,17 +14,106 @@ from aiogram.utils.chat_action import ChatActionSender
 from src.agent import loop as agent_loop
 from src.agent import prompts
 from src.config import settings
+from src.i18n import t
 from src.session import manager as session_mgr
 from src.tools.registry import get_registry
 
 logger = structlog.get_logger()
 router = Router(name="text")
 
-_PERSONALITY_MAP = {
-    "1": "Дружелюбный и тёплый — поддерживающий, позитивный, создаёт комфорт в диалоге",
-    "2": "Строгий и по делу — минимум лирики, только факты и действия",
-    "3": "Немного саркастичный — остроумный, иногда подкалывает, но всегда по существу",
-    "4": "Как ментор — задаёт вопросы, помогает думать самостоятельно, не даёт готовых ответов",
+_PERSONALITY_KEYS = {
+    "1": "personality.friendly",
+    "2": "personality.direct",
+    "3": "personality.sarcastic",
+    "4": "personality.mentor",
+}
+
+
+def _resolve_personality(raw_input: str, ui_lang: str) -> str:
+    """Map digit 1-4 to localized personality description, or pass through custom text."""
+    key = _PERSONALITY_KEYS.get(raw_input.strip())
+    return t(key, ui_lang) if key else raw_input.strip()
+
+
+_OWNER_EXTRACT_PROMPTS = {
+    "ru": (
+        "Проанализируй портрет ВЛАДЕЛЬЦА и верни JSON с двумя полями:\n"
+        '{"facts": ["факт1", "факт2", ...], "aliases": ["Имя1", "Имя2", ...]}\n\n'
+        "facts: 3-7 ключевых фактов о личности САМОГО ВЛАДЕЛЬЦА. "
+        "Только то что явно сказано про него самого. НЕ про его девушку, "
+        "семью, проекты — только про него.\n\n"
+        "aliases: ТОЛЬКО варианты ИМЕНИ ИЛИ НИКА самого владельца "
+        "(полное имя, фамилия, ник, прозвище, английский вариант). "
+        "Имена ДРУГИХ людей (девушки, семьи, коллег) сюда НЕ ВКЛЮЧАЙ "
+        "никогда. Например если в портрете написано 'я Komron, есть "
+        "девушка Даша' — aliases = ['Komron'], НЕ ['Komron', 'Даша']."
+    ),
+    "en": (
+        "Analyze the OWNER's portrait and return JSON with two fields:\n"
+        '{"facts": ["fact1", "fact2", ...], "aliases": ["Name1", "Name2", ...]}\n\n'
+        "facts: 3-7 key facts about the OWNER's own personality. "
+        "Only what's explicitly said about themselves. NOT about their "
+        "girlfriend, family, projects — only about them.\n\n"
+        "aliases: ONLY variants of the owner's NAME or nickname "
+        "(full name, surname, nick, English variant). Names of OTHER people "
+        "(girlfriend, family, colleagues) NEVER go here. "
+        "E.g. if portrait says 'I'm Komron, dating Dasha' — "
+        "aliases = ['Komron'], NOT ['Komron', 'Dasha']."
+    ),
+    "uz": (
+        "EGA portretini tahlil qil va ikkita maydonli JSON qaytar:\n"
+        '{"facts": ["fakt1", "fakt2", ...], "aliases": ["Ism1", "Ism2", ...]}\n\n'
+        "facts: EGA shaxsiyati haqida 3-7 ta asosiy fakt. "
+        "Faqat o'zi haqida aniq aytilgan narsa. Qiz do'sti, oilasi, "
+        "loyihalari haqida EMAS — faqat egasi haqida.\n\n"
+        "aliases: FAQAT egasining ISMI yoki taxallusi variantlari "
+        "(to'liq ism, familiya, taxallus, inglizcha variant). BOSHQA "
+        "odamlarning (qiz do'sti, oila, hamkasblar) ismlari bu yerga "
+        "HECH QACHON kirmaydi. Masalan portretda 'men Komron, qiz "
+        "do'stim Dasha' bo'lsa — aliases = ['Komron'], NOT ['Komron', 'Dasha']."
+    ),
+}
+
+_OWNER_USER_LABEL = {
+    "ru": ("Имя владельца", "Портрет"),
+    "en": ("Owner name", "Portrait"),
+    "uz": ("Ega ismi", "Portret"),
+}
+
+_OWNER_REFINE_PROMPTS = {
+    "ru": (
+        "Проанализируй диалог онбординга и верни JSON с двумя полями: "
+        '{"facts": ["факт1", "факт2", ...], "aliases": ["Имя1", ...]}\n\n'
+        "facts: 5-10 КЛЮЧЕВЫХ фактов о владельце ИЗ ВСЕГО ДИАЛОГА — "
+        "то что юзер реально сказал про себя за все реплики. "
+        "Конкретно (даты, названия), а не общё. НЕ про девушку, семью, "
+        "проекты по отдельности — только про САМОГО владельца как личность.\n\n"
+        "aliases: ТОЛЬКО варианты ИМЕНИ владельца. Имена других людей НЕ ВКЛЮЧАЙ."
+    ),
+    "en": (
+        "Analyze the onboarding dialog and return JSON with two fields: "
+        '{"facts": ["fact1", "fact2", ...], "aliases": ["Name1", ...]}\n\n'
+        "facts: 5-10 KEY facts about the owner FROM THE WHOLE DIALOG — "
+        "what the user actually said about themselves across all turns. "
+        "Concrete (dates, names), not generic. NOT about girlfriend, family, "
+        "projects separately — only about the OWNER themselves as a person.\n\n"
+        "aliases: ONLY variants of the OWNER's name. Names of other people NOT included."
+    ),
+    "uz": (
+        "Onboarding muloqotini tahlil qil va ikkita maydonli JSON qaytar: "
+        '{"facts": ["fakt1", "fakt2", ...], "aliases": ["Ism1", ...]}\n\n'
+        "facts: BUTUN MULOQOTDAN ega haqida 5-10 ta ASOSIY fakt — "
+        "foydalanuvchi barcha replikalarida o'zi haqida aytgan narsalar. "
+        "Aniq (sanalar, nomlar), umumiy emas. Qiz do'sti, oila, loyihalar "
+        "alohida emas — faqat EGA shaxsiyati haqida.\n\n"
+        "aliases: FAQAT EGA ismining variantlari. Boshqa odamlarning ismlari KIRMAYDI."
+    ),
+}
+
+_OWNER_REFINE_LABEL = {
+    "ru": ("Имя владельца", "Полный диалог онбординга"),
+    "en": ("Owner name", "Full onboarding dialog"),
+    "uz": ("Ega ismi", "To'liq onboarding muloqoti"),
 }
 
 
@@ -36,29 +125,22 @@ async def _create_owner_note(
     profile: dict[str, object],
 ) -> None:
     """Create _meta/owner.md — the owner anchor node."""
-    owner_name = str(profile.get("owner_name", "Владелец"))
+    owner_name = str(profile.get("owner_name", "Owner"))
+    notes_lang = session_mgr.get_notes_language(profile)
     client = agent_loop.get_client()
+
+    sys_prompt = _OWNER_EXTRACT_PROMPTS.get(notes_lang, _OWNER_EXTRACT_PROMPTS["ru"])
+    owner_label, portrait_label = _OWNER_USER_LABEL.get(notes_lang, _OWNER_USER_LABEL["ru"])
 
     # LLM extracts key facts + aliases from portrait
     resp = await client.chat.completions.create(
         model=settings.openai_model_fast,
         messages=[
+            {"role": "system", "content": sys_prompt},
             {
-                "role": "system",
-                "content": (
-                    "Проанализируй портрет ВЛАДЕЛЬЦА и верни JSON с двумя полями:\n"
-                    '{"facts": ["факт1", "факт2", ...], "aliases": ["Имя1", "Имя2", ...]}\n\n'
-                    "facts: 3-7 ключевых фактов о личности САМОГО ВЛАДЕЛЬЦА. "
-                    "Только то что явно сказано про него самого. НЕ про его девушку, "
-                    "семью, проекты — только про него.\n\n"
-                    "aliases: ТОЛЬКО варианты ИМЕНИ ИЛИ НИКА самого владельца "
-                    "(полное имя, фамилия, ник, прозвище, английский вариант). "
-                    "Имена ДРУГИХ людей (девушки, семьи, коллег) сюда НЕ ВКЛЮЧАЙ "
-                    "никогда. Например если в портрете написано 'я Komron, есть "
-                    "девушка Даша' — aliases = ['Komron'], НЕ ['Komron', 'Даша']."
-                ),
+                "role": "user",
+                "content": f"{owner_label}: {owner_name}\n\n{portrait_label}:\n{portrait}",
             },
-            {"role": "user", "content": f"Имя владельца: {owner_name}\n\nПортрет:\n{portrait}"},
         ],
         response_format={"type": "json_object"},
     )
@@ -129,7 +211,8 @@ async def _refine_owner_from_dialog(
     initial user message, ignoring everything the agent extracted via follow-up
     questions, fetched URLs, or vision-described screenshots.
     """
-    owner_name = str(profile.get("owner_name", "Владелец"))
+    owner_name = str(profile.get("owner_name", "Owner"))
+    notes_lang = session_mgr.get_notes_language(profile)
     client = agent_loop.get_client()
 
     # Compress dialog into a single transcript (skip system messages)
@@ -147,27 +230,16 @@ async def _refine_owner_from_dialog(
     if not transcript:
         return
 
+    sys_prompt = _OWNER_REFINE_PROMPTS.get(notes_lang, _OWNER_REFINE_PROMPTS["ru"])
+    owner_label, dialog_label = _OWNER_REFINE_LABEL.get(notes_lang, _OWNER_REFINE_LABEL["ru"])
+
     resp = await client.chat.completions.create(
         model=settings.openai_model_fast,
         messages=[
-            {
-                "role": "system",
-                "content": (
-                    "Проанализируй диалог онбординга и верни JSON с двумя полями: "
-                    '{"facts": ["факт1", "факт2", ...], "aliases": ["Имя1", ...]}\n\n'
-                    "facts: 5-10 КЛЮЧЕВЫХ фактов о владельце ИЗ ВСЕГО ДИАЛОГА — "
-                    "то что юзер реально сказал про себя за все реплики. "
-                    "Конкретно (даты, названия), а не общё. НЕ про девушку, семью, "
-                    "проекты по отдельности — только про САМОГО владельца как личность.\n\n"
-                    "aliases: ТОЛЬКО варианты ИМЕНИ владельца. Имена других людей НЕ ВКЛЮЧАЙ."
-                ),
-            },
+            {"role": "system", "content": sys_prompt},
             {
                 "role": "user",
-                "content": (
-                    f"Имя владельца: {owner_name}\n\n"
-                    f"Полный диалог онбординга:\n\n{transcript}"
-                ),
+                "content": f"{owner_label}: {owner_name}\n\n{dialog_label}:\n\n{transcript}",
             },
         ],
         response_format={"type": "json_object"},
@@ -211,61 +283,251 @@ async def _refine_owner_from_dialog(
         logger.warning("owner.md refine failed", error=str(exc))
 
 
-def _build_language_instruction(lang: str) -> str:
-    """Strict language directive injected into prompts that create vault notes.
+_DIALOG_LANG_DIRECTIVES: dict[str, str] = {
+    "ru": (
+        "# 💬 ЯЗЫК ОТВЕТА — РУССКИЙ. ЭТО ПРИОРИТЕТ #1.\n\n"
+        "ВСЕ твои ответы юзеру — на русском языке. Не на узбекском, не на "
+        "английском. На русском.\n\n"
+        "Это правило перевешивает ВСЁ остальное:\n"
+        "- Если описание твоей личности (`personality`) написано на другом "
+        "языке — игнорируй язык personality, бери только смысл, отвечай по-русски.\n"
+        "- Если предыдущие сообщения в истории были на другом языке — НЕ "
+        "зеркаль их язык. История могла быть до переключения /lang.\n"
+        "- Если язык vault (notes_language) отличается — он управляет ТОЛЬКО "
+        "содержимым заметок, не диалогом."
+    ),
+    "en": (
+        "# 💬 REPLY LANGUAGE — ENGLISH. PRIORITY #1.\n\n"
+        "ALL your replies to the user — in English. Not Uzbek, not Russian. "
+        "English.\n\n"
+        "This rule overrides everything else:\n"
+        "- If the `personality` description is in another language — ignore "
+        "the language of personality, take only meaning, reply in English.\n"
+        "- If prior messages in history are in another language — do NOT "
+        "mirror their language. History may predate a /lang switch.\n"
+        "- Vault language (notes_language) controls only note contents, "
+        "not dialog."
+    ),
+    "uz": (
+        "# 💬 JAVOB TILI — O'ZBEKCHA (lotin). USTUVORLIK #1.\n\n"
+        "Foydalanuvchiga BARCHA javoblaring — o'zbek tilida (lotin yozuvida). "
+        "Ruscha emas, inglizcha emas. O'zbekcha.\n\n"
+        "Bu qoida hamma narsadan ustun:\n"
+        "- Agar shaxsiyat tavsifi (`personality`) boshqa tilda bo'lsa — "
+        "tilini e'tiborga olma, faqat ma'nosini ol, o'zbekcha javob ber.\n"
+        "- Agar tarixda oldingi xabarlar boshqa tilda bo'lsa — ularning "
+        "tilini takrorlama. Tarix /lang almashtirishdan oldin bo'lishi mumkin.\n"
+        "- Vault tili (notes_language) faqat yozuvlar mazmunini boshqaradi, "
+        "muloqotni emas."
+    ),
+}
 
-    Closes Root #3 — vault language inconsistency. With this instruction, LLM
-    is forced to use one language for canonical_name/aliases/themes/etc.
-    """
-    if lang == "ru":
-        return (
-            "# 🌐 Язык vault: РУССКИЙ\n\n"
-            "ВСЕ canonical_name, aliases, themes, body — на русском. "
-            "Если в портрете упоминаются английские термины (LegAI, GPT-5.4, "
-            "Claude) — оставляй их латиницей как имя собственное. Но имена тем, "
-            "места работы, концепты переводи на русский: "
-            "❌ `cybersecurity` → ✅ `кибербезопасность`; "
-            "❌ `ambition` → ✅ `карьерные амбиции`; "
-            "❌ `china` → ✅ `китай`."
-        )
-    if lang == "en":
-        return (
-            "# 🌐 Vault language: ENGLISH\n\n"
-            "ALL canonical_name, aliases, themes, body — in English. "
-            "Russian names of people / cities stay in original (Anya, Tashkent), "
-            "but concepts and topics — translate: "
-            "❌ `карьерные-амбиции` → ✅ `career-ambition`; "
-            "❌ `образование` → ✅ `education`."
-        )
-    return (
-        "# 🌐 Vault language: MIXED\n\n"
-        "Допускается смесь языков, но избегай дублирования одной сущности на "
-        "разных языках (НЕ создавай и `ai`, и `искусственный-интеллект` как две "
-        "темы — выбери одну, остальное в aliases)."
-    )
+
+_LANGUAGE_INSTRUCTIONS: dict[str, str] = {
+    "ru": (
+        "# 🌐 Язык vault: РУССКИЙ\n\n"
+        "ВСЕ canonical_name, aliases, themes, body — на русском. "
+        "Если упоминаются английские термины (LegAI, GPT-5.4, Claude) — "
+        "оставляй их латиницей как имя собственное. Но имена тем, места "
+        "работы, концепты переводи на русский: "
+        "❌ `cybersecurity` → ✅ `кибербезопасность`; "
+        "❌ `ambition` → ✅ `карьерные амбиции`; "
+        "❌ `china` → ✅ `китай`."
+    ),
+    "en": (
+        "# 🌐 Vault language: ENGLISH\n\n"
+        "ALL canonical_name, aliases, themes, body — in English. "
+        "Russian/Uzbek names of people and cities stay in original (Anya, "
+        "Toshkent), but concepts and topics — translate: "
+        "❌ `карьерные-амбиции` → ✅ `career-ambition`; "
+        "❌ `образование` → ✅ `education`."
+    ),
+    "uz": (
+        "# 🌐 Vault tili: O'ZBEKCHA (lotin)\n\n"
+        "BARCHA canonical_name, aliases, themes, body — o'zbek tilida (lotin "
+        "yozuvida). Boshqa tildagi atoqli otlar (LegAI, GPT-5.4, Anya) "
+        "asl shaklida qoldiriladi, lekin tushuncha va mavzular tarjima "
+        "qilinadi: "
+        "❌ `cybersecurity` → ✅ `kiberxavfsizlik`; "
+        "❌ `образование` → ✅ `ta'lim`."
+    ),
+}
+
+
+def _build_language_instruction(lang: str) -> str:
+    """Strict language directive injected into prompts that create vault notes."""
+    return _LANGUAGE_INSTRUCTIONS.get(lang, _LANGUAGE_INSTRUCTIONS["ru"])
 
 
 _ONBOARDING_DONE_SENTINEL = "[ONBOARDING_DONE]"
 _ONBOARDING_MAX_TURNS = 10  # 2-4 expected, hard cap to prevent runaway
 
 
+_ONBOARDING_SESSION_ID = "onboarding"
+
+# Loop detector: how similar two assistant questions must be (token-set ratio,
+# 0..100) before we conclude the agent is asking the same thing repeatedly.
+# 70 catches reorderings/paraphrases like
+#   "Где сейчас учишься или работаешь?" vs
+#   "Сейчас ты учишься или работаешь — расскажи?"
+# without firing on legitimately different follow-ups.
+_ONBOARDING_LOOP_SIM_THRESHOLD = 70
+# Need at least this many assistant turns before we can detect a loop —
+# fewer than 3 doesn't give us a comparable pair.
+_ONBOARDING_LOOP_MIN_ASSISTANT_TURNS = 3
+
+
+def _is_onboarding_looping(saved_messages: list[dict[str, Any]]) -> bool:
+    """Detect whether onboarding is stuck asking the same question(s) again.
+
+    Compares the last assistant message to the previous few via rapidfuzz
+    token-set ratio (word-order-insensitive). If similarity is high, the agent
+    has not progressed since the prior turn — force-ending is preferable to
+    looping forever.
+    """
+    assistant_texts = [
+        str(m.get("content") or "").strip()
+        for m in saved_messages
+        if m.get("role") == "assistant"
+    ]
+    assistant_texts = [t for t in assistant_texts if t]
+    if len(assistant_texts) < _ONBOARDING_LOOP_MIN_ASSISTANT_TURNS:
+        return False
+
+    from rapidfuzz import fuzz as _fuzz
+
+    last = assistant_texts[-1]
+    for older in assistant_texts[-4:-1]:
+        # Combine two metrics: token_set_ratio handles word-reordering (LLM
+        # paraphrasing); partial_ratio handles substring overlap (LLM rephrasing
+        # but reusing whole clauses). Either crossing the threshold counts.
+        sim = max(
+            _fuzz.token_set_ratio(last, older),
+            _fuzz.partial_ratio(last, older),
+        )
+        if sim >= _ONBOARDING_LOOP_SIM_THRESHOLD:
+            return True
+    return False
+
+
+def _build_onboarding_system_prompt(profile: dict[str, object]) -> str:
+    """Render the onboarding system prompt from the *current* profile state.
+
+    Called on every turn — not cached in onboarding state — so a `/lang` switch
+    mid-onboarding is honored on the very next user reply. Closes the bug
+    where switching ui_language during onboarding had no effect because the
+    initial Uzbek/Russian/English prompt was stored verbatim in Redis.
+    """
+    from src.vault.vault_map import build_vault_map
+
+    bot_name = str(profile.get("bot_name", "Mnemo"))
+    personality = str(profile.get("personality", ""))
+    owner_name = str(profile.get("owner_name", "Owner"))
+    ui_lang = session_mgr.get_ui_language(profile)
+    notes_lang = session_mgr.get_notes_language(profile)
+
+    base_system = prompts.render(
+        "onboarding",
+        lang=ui_lang,
+        bot_name=bot_name,
+        personality=personality,
+        owner_name=owner_name,
+        owner_path="_meta/owner.md",
+        vault_language=notes_lang,
+    )
+    vault_map = build_vault_map()
+    lang_instruction = _build_language_instruction(notes_lang)
+    dialog_directive = _DIALOG_LANG_DIRECTIVES.get(ui_lang, _DIALOG_LANG_DIRECTIVES["ru"])
+    return (
+        f"{base_system}\n\n---\n\n{dialog_directive}\n\n---\n\n"
+        f"{lang_instruction}\n\n---\n\n{vault_map}"
+    )
+
+
 async def _run_onboarding_turn(
     messages: list[dict[str, Any]],
+    stream: _StreamUI | None = None,
 ) -> tuple[str, bool]:
     """Run one turn of the onboarding agent loop.
 
     Returns (assistant_text, is_done). is_done is True when the agent emitted
     the [ONBOARDING_DONE] sentinel — meaning the initial graph is built.
+
+    Tool dispatch passes session_id="onboarding" so create_note (and other
+    tools) can read filled slots from `slot:filled:onboarding` and enforce the
+    proper-noun preservation guard (M4).
+
+    When `stream` is provided, the LLM's content tokens are progressively
+    edited into the placeholder bubble — same UX as normal chat.
     """
     registry = get_registry()
 
     async def dispatch(name: str, args: dict) -> str:  # type: ignore[type-arg]
-        return await registry.call(name, args)
+        return await registry.call(name, args, session_id=_ONBOARDING_SESSION_ID)
 
-    result = await agent_loop.run_chat(messages, registry.openai_specs(), dispatch, max_rounds=30)
+    on_text_cb = stream.on_text if stream else None
+    on_tool_cb = stream.on_tool_start if stream else None
+
+    result = await agent_loop.run_chat(
+        messages,
+        registry.openai_specs(),
+        dispatch,
+        max_rounds=30,
+        on_text=on_text_cb,
+        on_tool_start=on_tool_cb,
+        session_id=_ONBOARDING_SESSION_ID,
+    )
     is_done = _ONBOARDING_DONE_SENTINEL in result
     text = result.replace(_ONBOARDING_DONE_SENTINEL, "").strip()
     return text, is_done
+
+
+async def _seal_onboarding_transcript(
+    saved_messages: list[dict[str, Any]],
+    profile: dict[str, object],
+) -> None:
+    """Write the onboarding dialog to the transcript layer.
+
+    Onboarding doesn't go through extractor.run_pipeline, so without this hook
+    the literal log of the first conversation is lost. The transcript is the
+    only place the user's exact words survive long-term.
+
+    Idempotent on session_id="onboarding_{user_id}_{date}" — re-running an
+    onboarding overwrites the file (rare, intentional).
+    """
+    from datetime import UTC, datetime
+    from zoneinfo import ZoneInfo
+
+    from src.session.manager import SessionMessage, get_notes_language
+    from src.vault import transcripts
+
+    user_id = int(str(profile.get("user_id", settings.allowed_user_ids[0])))
+    tz = ZoneInfo(settings.tz)
+    date_str = datetime.now(tz).strftime("%Y-%m-%d")
+    session_id = f"onboarding_{user_id}_{date_str}"
+    notes_lang = get_notes_language(profile)
+
+    # Convert dict-format saved_messages to SessionMessage. Timestamps are not
+    # tracked per-turn in onboarding state, so we stamp them as `now` — the
+    # ORDER is the load-bearing part, not the precise wall-clock time.
+    now = datetime.now(UTC)
+    msgs: list[SessionMessage] = []
+    for m in saved_messages:
+        role = m.get("role", "")
+        if role not in ("user", "assistant"):
+            continue
+        content = m.get("content")
+        if not isinstance(content, str) or not content.strip():
+            continue
+        msgs.append(SessionMessage(role=role, content=content, ts=now))  # type: ignore[arg-type]
+
+    if not msgs:
+        return
+
+    try:
+        await transcripts.seal_session(session_id, msgs, lang=notes_lang)
+    except Exception as exc:
+        logger.warning("onboarding transcript seal failed", error=str(exc))
 
 
 async def _finalize_onboarding() -> None:
@@ -319,24 +581,11 @@ async def _run_onboarding_execute(
     except Exception as exc:
         logger.warning("portrait save failed", error=str(exc))
 
-    # Step 3: build initial agent prompt + inject vault map
-    from src.vault.vault_map import build_vault_map
+    # Step 3: build initial agent prompt — extracted into a helper so we can
+    # re-render it on every turn (honoring live /lang switches).
+    ui_lang = session_mgr.get_ui_language(profile)
+    system = _build_onboarding_system_prompt(profile)
 
-    bot_name = str(profile.get("bot_name", "Ассистент"))
-    personality = str(profile.get("personality", ""))
-    owner_name = str(profile.get("owner_name", "Владелец"))
-    base_system = prompts.render(
-        "onboarding",
-        bot_name=bot_name,
-        personality=personality,
-        owner_name=owner_name,
-        owner_path="_meta/owner.md",
-        vault_language=str(profile.get("vault_language", "mixed")),
-    )
-    vault_map = build_vault_map()
-    lang = str(profile.get("vault_language", "mixed"))
-    lang_instruction = _build_language_instruction(lang)
-    system = f"{base_system}\n\n---\n\n{lang_instruction}\n\n---\n\n{vault_map}"
     # The first user message is just the raw portrait. The system prompt
     # already explains everything: dialog mode, plain language, when to wrap up.
     messages: list[dict[str, Any]] = [
@@ -344,8 +593,12 @@ async def _run_onboarding_execute(
         {"role": "user", "content": portrait},
     ]
 
-    text, is_done = await _run_onboarding_turn(messages)
-    await reply_fn(text)
+    stream = await _make_stream_ui(user_id, ui_lang)
+    text, is_done = await _run_onboarding_turn(messages, stream=stream)
+    if stream is not None:
+        await stream.finalize(text)
+    else:
+        await reply_fn(text)
 
     # Track full dialog for later refine (always append assistant turn)
     messages.append({"role": "assistant", "content": text})
@@ -356,6 +609,7 @@ async def _run_onboarding_execute(
             await _refine_owner_from_dialog(messages, profile)
         except Exception as exc:
             logger.warning("owner refine after onboarding failed", error=str(exc))
+        await _seal_onboarding_transcript(messages, profile)
         await _finalize_onboarding()
         return
 
@@ -390,75 +644,49 @@ async def _handle_onboarding(
 
     state = orjson.loads(raw)
     step = state["state"]
+    profile = await session_mgr.get_profile(redis, user_id)
+    ui_lang = session_mgr.get_ui_language(profile)
+
+    if step == "step_ui_language":
+        # Waiting on inline-keyboard callback. Ignore plain-text input here so a
+        # user typing "русский" instead of pressing the button doesn't get stuck.
+        await reply_fn(t("start.pick_ui_language", "ru"))
+        return True
 
     if step == "step_bot_name":
-        bot_name = content.strip() or "Ассистент"
+        bot_name = content.strip() or "Mnemo"
         await session_mgr.update_profile(redis, user_id, {"bot_name": bot_name})
         await redis.set(key, orjson.dumps({"state": "step_personality"}), ex=86400)
-        await reply_fn(
-            f"Буду <b>{bot_name}</b>! Теперь выбери <b>стиль общения</b>:\n\n"
-            "1 — Дружелюбный и тёплый\n"
-            "2 — Строгий и по делу\n"
-            "3 — Немного саркастичный\n"
-            "4 — Как ментор (задаёт вопросы, направляет)\n"
-            "5 — Свой стиль (просто напиши)"
-        )
+        await reply_fn(t("onboarding.ask_personality", ui_lang, bot_name=bot_name))
         return True
 
     if step == "step_personality":
-        raw_input = content.strip()
-        personality = _PERSONALITY_MAP.get(raw_input, raw_input)
+        personality = _resolve_personality(content, ui_lang)
         await session_mgr.update_profile(redis, user_id, {"personality": personality})
         await redis.set(key, orjson.dumps({"state": "step_owner_name"}), ex=86400)
-        await reply_fn(
-            "Понял! Теперь — <b>как тебя зовут?</b>\n\n"
-            "Имя или ник — чтобы я к тебе обращался правильно."
-        )
+        await reply_fn(t("onboarding.ask_owner_name", ui_lang))
         return True
 
     if step == "step_owner_name":
-        owner_name = content.strip() or "Владелец"
+        owner_name = content.strip() or "Owner"
         await session_mgr.update_profile(
             redis, user_id, {"owner_name": owner_name, "user_id": user_id}
         )
-        await redis.set(key, orjson.dumps({"state": "step_vault_language"}), ex=86400)
-        await reply_fn(
-            f"Отлично, <b>{owner_name}</b>! Ещё один вопрос — <b>на каком языке "
-            "вести твои заметки</b>?\n\n"
-            "1 — <b>Русский</b> (имена и заметки на русском)\n"
-            "2 — <b>English</b> (everything in English)\n"
-            "3 — <b>Mixed</b> (как удобнее в моменте)\n\n"
-            "Это важно: чтобы граф не превратился в кашу из разных языков."
+        await redis.set(key, orjson.dumps({"state": "step_notes_language"}), ex=86400)
+        # Send the question via direct bot call to attach an inline keyboard
+        from src.telegram.bot import get_bot
+        from src.telegram.handlers.commands import _ui_lang_keyboard
+
+        bot = get_bot()
+        await bot.send_message(
+            user_id,
+            t("onboarding.ask_notes_language", ui_lang, owner_name=owner_name),
+            reply_markup=_ui_lang_keyboard("onboard_notes_lang"),
         )
         return True
 
-    if step == "step_vault_language":
-        raw = content.strip().lower()
-        lang_map = {
-            "1": "ru",
-            "русский": "ru",
-            "ru": "ru",
-            "rus": "ru",
-            "2": "en",
-            "english": "en",
-            "en": "en",
-            "eng": "en",
-            "3": "mixed",
-            "mixed": "mixed",
-            "смешанный": "mixed",
-        }
-        vault_language = lang_map.get(raw, "mixed")
-        await session_mgr.update_profile(
-            redis, user_id, {"vault_language": vault_language}
-        )
-        await redis.set(key, orjson.dumps({"state": "awaiting_portrait"}), ex=86400)
-        lang_label = {"ru": "русский", "en": "English", "mixed": "mixed"}[vault_language]
-        await reply_fn(
-            f"Окей, язык записей: <b>{lang_label}</b>. И последнее — "
-            "<b>расскажи о себе</b>:\n\n"
-            "Кто ты, чем занимаешься, какие проекты и люди важны, "
-            "интересы, ценности, цели. Чем подробнее — тем умнее буду с первого дня."
-        )
+    if step == "step_notes_language":
+        # Same waiting-on-callback pattern as step_ui_language
         return True
 
     if step == "awaiting_portrait":
@@ -476,21 +704,57 @@ async def _handle_onboarding(
         portrait = state.get("portrait", "")
         turn_count = int(state.get("turn_count", 0))
 
-        saved_messages.append({"role": "user", "content": content})
+        # Refresh the system prompt on every turn so /lang switches mid-
+        # onboarding take effect, and so any profile-derived state (personality,
+        # owner_name) updates flow into the LLM context.
+        if saved_messages and saved_messages[0].get("role") == "system":
+            saved_messages[0] = {
+                "role": "system",
+                "content": _build_onboarding_system_prompt(profile),
+            }
 
-        text, is_done = await _run_onboarding_turn(saved_messages)
-        await reply_fn(text)
+        # If the agent registered a pending slot before asking, bind the user's
+        # literal answer to it. This is what prevents tokens like "БЕК" from
+        # being normalized away by the LLM on this turn.
+        slot_note = await _maybe_consume_slot(
+            user_id, _ONBOARDING_SESSION_ID, content, ui_lang
+        )
+
+        saved_messages.append({"role": "user", "content": content})
+        if slot_note:
+            saved_messages.append({"role": "system", "content": slot_note})
+
+        stream = await _make_stream_ui(user_id, ui_lang)
+        text, is_done = await _run_onboarding_turn(saved_messages, stream=stream)
+        if stream is not None:
+            await stream.finalize(text)
+        else:
+            await reply_fn(text)
 
         # Track full dialog for refinement (always append assistant turn)
         saved_messages.append({"role": "assistant", "content": text})
 
-        if is_done:
+        # Loop detector: if the agent keeps repeating the same question, the
+        # user is stuck. Force-end through the normal done-path so all the
+        # side effects (owner refine, transcript seal, defaults bootstrap)
+        # still happen — just earlier than [ONBOARDING_DONE] would have.
+        looping = not is_done and _is_onboarding_looping(saved_messages)
+        if looping:
+            logger.warning(
+                "onboarding loop detected — force-ending",
+                user_id=user_id,
+                turn_count=turn_count + 1,
+            )
+            await reply_fn(t("onboarding.loop_force_end", ui_lang))
+
+        if is_done or looping:
             await redis.delete(key)
             try:
                 profile = await session_mgr.get_profile(redis, user_id)
                 await _refine_owner_from_dialog(saved_messages, profile)
             except Exception as exc:
                 logger.warning("owner refine after onboarding failed", error=str(exc))
+            await _seal_onboarding_transcript(saved_messages, profile)
             await _finalize_onboarding()
             return True
 
@@ -498,12 +762,13 @@ async def _handle_onboarding(
             # Agent still has questions but we hit the limit — finalize forcibly
             logger.warning("onboarding hit max turns, ending forcibly", user_id=user_id)
             await redis.delete(key)
-            await reply_fn("Заверши то что начал — детали можем уточнить позже в обычном диалоге.")
+            await reply_fn(t("onboarding.forced_end", ui_lang))
             try:
                 profile = await session_mgr.get_profile(redis, user_id)
                 await _refine_owner_from_dialog(saved_messages, profile)
             except Exception as exc:
                 logger.warning("owner refine after onboarding failed", error=str(exc))
+            await _seal_onboarding_transcript(saved_messages, profile)
             await _finalize_onboarding()
             return True
         await redis.set(
@@ -523,6 +788,199 @@ async def _handle_onboarding(
     return False
 
 
+# ── streaming UI ──────────────────────────────────────────────────────────────
+
+
+# Cadence of edit_message_text calls during stream. Telegram allows ~1/sec per
+# chat reliably; we go a bit slower to leave headroom for rate-limit jitter.
+_STREAM_EDIT_MIN_INTERVAL_SEC = 0.9
+# Don't edit until the buffer grew by at least this many chars — prevents
+# wasting an edit on a single-token delta.
+_STREAM_EDIT_MIN_DELTA_CHARS = 25
+
+_TOOL_PROGRESS_LABELS: dict[str, dict[str, str]] = {
+    "ru": {
+        "recall": "🔍 ищу в памяти…",
+        "search_existing_entities": "🔍 ищу заметку…",
+        "search_notes": "🔍 ищу заметку…",
+        "read_note": "📖 читаю заметку…",
+        "create_note": "📝 записываю…",
+        "append_to_note": "📝 дописываю…",
+        "update_frontmatter": "📝 обновляю…",
+        "kg_query": "🧠 спрашиваю граф…",
+        "kg_get_entity": "🧠 проверяю граф…",
+        "fetch_url": "🌐 читаю ссылку…",
+        "set_pending_slot": "📌 фиксирую вопрос…",
+        "get_user_profile": "👤 проверяю профиль…",
+        "_default": "⚙️ работаю…",
+    },
+    "en": {
+        "recall": "🔍 recalling…",
+        "search_existing_entities": "🔍 searching notes…",
+        "search_notes": "🔍 searching notes…",
+        "read_note": "📖 reading note…",
+        "create_note": "📝 writing…",
+        "append_to_note": "📝 appending…",
+        "update_frontmatter": "📝 updating…",
+        "kg_query": "🧠 querying graph…",
+        "kg_get_entity": "🧠 checking graph…",
+        "fetch_url": "🌐 fetching URL…",
+        "set_pending_slot": "📌 anchoring question…",
+        "get_user_profile": "👤 checking profile…",
+        "_default": "⚙️ working…",
+    },
+    "uz": {
+        "recall": "🔍 xotirada qidiryapman…",
+        "search_existing_entities": "🔍 yozuv qidiryapman…",
+        "search_notes": "🔍 yozuv qidiryapman…",
+        "read_note": "📖 yozuvni o'qiyapman…",
+        "create_note": "📝 yozyapman…",
+        "append_to_note": "📝 qo'shyapman…",
+        "update_frontmatter": "📝 yangilayapman…",
+        "kg_query": "🧠 grafga murojaat…",
+        "kg_get_entity": "🧠 grafni tekshiryapman…",
+        "fetch_url": "🌐 havolani o'qiyapman…",
+        "set_pending_slot": "📌 savolni belgilayapman…",
+        "get_user_profile": "👤 profilni tekshiryapman…",
+        "_default": "⚙️ ishlayapman…",
+    },
+}
+
+_THINKING_PLACEHOLDER: dict[str, str] = {
+    "ru": "…",
+    "en": "…",
+    "uz": "…",
+}
+
+
+class _StreamUI:
+    """Edits a single Telegram message progressively as the LLM streams tokens.
+
+    Lifecycle:
+        - `_make_stream_ui` sends the placeholder bubble and returns this object.
+        - `on_tool_start(name)` swaps text to a localized "📌 действие…" label.
+        - `on_text(full)` debounce-edits with the growing accumulator.
+        - `finalize(text)` writes the final reply; returns False if Telegram
+          refused (rare — caller falls back to fresh send_message).
+    """
+
+    def __init__(self, bot: object, chat_id: int, message_id: int, ui_lang: str) -> None:
+        self._bot = bot
+        self._chat_id = chat_id
+        self._message_id = message_id
+        self._ui_lang = ui_lang
+        self._last_edit_at: float = 0.0
+        self._last_text: str = ""
+        self._labels = _TOOL_PROGRESS_LABELS.get(ui_lang, _TOOL_PROGRESS_LABELS["ru"])
+
+    async def on_text(self, full_text: str) -> None:
+        import time
+
+        if not full_text:
+            return
+        now = time.monotonic()
+        grew_by = len(full_text) - len(self._last_text)
+        elapsed = now - self._last_edit_at
+        if elapsed < _STREAM_EDIT_MIN_INTERVAL_SEC and grew_by < _STREAM_EDIT_MIN_DELTA_CHARS:
+            return
+        await self._edit(full_text)
+
+    async def on_tool_start(self, tool_name: str) -> None:
+        label = self._labels.get(tool_name, self._labels["_default"])
+        await self._edit(label, force=True)
+
+    async def finalize(self, final_text: str) -> bool:
+        """Land the final reply. Returns True if edit succeeded, False if a
+        fresh message is needed (caller's fallback)."""
+        if not final_text:
+            return True
+        ok = await self._edit(final_text, force=True)
+        logger.info(
+            "stream finalize",
+            message_id=self._message_id,
+            chars=len(final_text),
+            success=ok,
+        )
+        return ok
+
+    async def _edit(self, text: str, *, force: bool = False) -> bool:
+        import time
+
+        truncated = text if len(text) < 4000 else text[:3950] + "…"
+        if not force and truncated == self._last_text:
+            return True
+        try:
+            await self._bot.edit_message_text(  # type: ignore[attr-defined]
+                chat_id=self._chat_id,
+                message_id=self._message_id,
+                text=truncated,
+            )
+            self._last_text = truncated
+            self._last_edit_at = time.monotonic()
+            return True
+        except Exception as exc:
+            msg = str(exc)
+            # "message is not modified" — content identical to prior edit; benign.
+            if "not modified" in msg.lower():
+                return True
+            # Rate limit / transient — next edit will catch up; not fatal.
+            # Promoted from debug → info while we diagnose streaming UX.
+            logger.info("stream edit failed", error=msg[:200])
+            return False
+
+
+async def _make_stream_ui(user_id: int, ui_lang: str) -> _StreamUI | None:
+    """Send the placeholder bubble and return a streaming UI handle.
+
+    Returns None on failure — caller falls back to non-streaming send path.
+    """
+    try:
+        from src.telegram.bot import get_bot
+
+        bot = get_bot()
+        placeholder = _THINKING_PLACEHOLDER.get(ui_lang, _THINKING_PLACEHOLDER["ru"])
+        sent = await bot.send_message(user_id, placeholder)
+        logger.info(
+            "stream ui ready",
+            user_id=user_id,
+            message_id=sent.message_id,
+            ui_lang=ui_lang,
+        )
+        return _StreamUI(bot, user_id, sent.message_id, ui_lang)
+    except Exception as exc:
+        logger.warning("stream ui setup failed", user_id=user_id, error=str(exc))
+        return None
+
+
+# ── slot binding helper ───────────────────────────────────────────────────────
+
+
+async def _maybe_consume_slot(
+    user_id: int,
+    session_id: str,
+    user_message: str,
+    ui_lang: str,
+) -> str:
+    """If a pending slot exists, fill it with the literal user reply.
+
+    Returns a system-message body to inject into the next LLM call (so the
+    agent sees "user just answered X verbatim"), or "" if no slot was pending.
+    Failures here never break the chat — slot binding is best-effort enrichment.
+    """
+    try:
+        from src.session import slots
+        from src.session.manager import get_redis
+
+        redis = await get_redis()
+        filled = await slots.consume_pending(redis, user_id, session_id, user_message)
+        if filled is None:
+            return ""
+        return slots.format_filled_for_prompt(filled, lang=ui_lang)
+    except Exception as exc:
+        logger.warning("slot consume failed", error=str(exc), user_id=user_id)
+        return ""
+
+
 # ── topic shift helpers ───────────────────────────────────────────────────────
 
 
@@ -536,8 +994,13 @@ async def _maybe_shift_session(
     """Check for topic shift; if detected, close old session and open a new one."""
     from src.session.topic_shift import detect
 
+    redis = await session_mgr.get_redis()
+    profile = await session_mgr.get_profile(redis, user_id)
+    ui_lang = session_mgr.get_ui_language(profile)
+    notes_lang = session_mgr.get_notes_language(profile)
+
     try:
-        shifted, new_topic = await detect(session, history, content)
+        shifted, new_topic = await detect(session, history, content, notes_lang=notes_lang)
     except Exception as exc:
         logger.warning("topic shift check failed", error=str(exc))
         return session
@@ -545,8 +1008,7 @@ async def _maybe_shift_session(
     if not shifted:
         return session
 
-    await reply_fn("вижу смену темы — сохраняю предыдущую сессию...")
-    redis = await session_mgr.get_redis()
+    await reply_fn(t("save.shifting", ui_lang))
     closed = await session_mgr.close_session(redis, user_id)
     if closed:
         msgs = await session_mgr.get_msgs(redis, closed.session_id)
@@ -584,12 +1046,39 @@ _COALESCE_DEBOUNCE_SEC = 1.5
 _RECALL_MIN_CHARS = 15
 _RECALL_MAX_CHARS = 1500  # truncate the recall context injected into the prompt
 
+_RECALL_HEADERS = {
+    "ru": "Контекст из твоей долгосрочной памяти (релевантные прошлые заметки):",
+    "en": "Context from your long-term memory (relevant past notes):",
+    "uz": "Uzoq xotirangdan kontekst (tegishli oldingi yozuvlar):",
+}
+_RECALL_FOOTERS = {
+    "ru": (
+        "Используй это чтобы не игнорировать прошлый опыт юзера. "
+        "Не цитируй дословно — просто помни."
+    ),
+    "en": (
+        "Use this so you don't ignore the user's prior experience. "
+        "Don't quote verbatim — just remember."
+    ),
+    "uz": (
+        "Bundan foydalanib foydalanuvchining oldingi tajribasini "
+        "e'tiborsiz qoldirma. So'zma-so'z keltirma — shunchaki esda tut."
+    ),
+}
+_TRUNCATE_HINTS = {
+    "ru": "[…ответ обрезан, слишком длинный для Telegram]",
+    "en": "[…reply truncated, too long for Telegram]",
+    "uz": "[…javob qisqartirildi, Telegram uchun juda uzun]",
+}
+
 
 async def _fetch_recall_context(user_message: str) -> str:
     """Retrieve relevant chunks from LightRAG for this message.
 
-    Returns empty string if message too short, retrieval fails, or vault is
-    empty. Never raises — recall is best-effort enrichment.
+    Intentionally unbounded — Mnemo's core promise is that the bot never
+    forgets, so we wait however long LightRAG needs to return a complete
+    result. Perceived latency is hidden via streaming UI (handler level), NOT
+    via timeout-skip of memory operations. See `feedback_memory_over_speed`.
     """
     if len(user_message) < _RECALL_MIN_CHARS:
         return ""
@@ -597,7 +1086,7 @@ async def _fetch_recall_context(user_message: str) -> str:
         from src.lightrag_svc.client import query as kg_query
 
         ctx = await kg_query(
-            user_message[:500],  # cap query length
+            user_message[:500],
             mode="mix",
             only_need_context=True,
             top_k=5,
@@ -691,6 +1180,13 @@ async def process_input(
             await _start_onboarding(user_id, redis, _AnswerShim())  # type: ignore[arg-type]
             return
 
+    # Kick off auto-recall as soon as we have `content` — it's independent of
+    # session state and can run concurrently with the Redis-bound topic-shift /
+    # push / touch sequence below. We await it just before the LLM call.
+    recall_task: asyncio.Task[str] | None = None
+    if kind == "text":
+        recall_task = asyncio.create_task(_fetch_recall_context(content))
+
     session = await session_mgr.get_or_create(redis, user_id)
 
     history_msgs = await session_mgr.get_msgs(redis, session.session_id)
@@ -713,31 +1209,51 @@ async def process_input(
     await session_mgr.touch(redis, user_id, session)
 
     profile = await session_mgr.get_profile(redis, user_id)
+    ui_lang = session_mgr.get_ui_language(profile)
+    notes_lang = session_mgr.get_notes_language(profile)
 
     history = [{"role": m.role, "content": m.content} for m in history_msgs[-30:]]
 
-    bot_name = str(profile.get("bot_name", "Ассистент"))
+    bot_name = str(profile.get("bot_name", "Mnemo"))
     personality = str(profile.get("personality", ""))
-    system_prompt = prompts.render("system", bot_name=bot_name, personality=personality)
+    # Agent SPEAKS in ui_language. Notes are still written in notes_language —
+    # the lang_instruction block below pins canonical_name/aliases/body to
+    # notes_lang regardless of dialog language.
+    system_prompt = prompts.render(
+        "system", lang=ui_lang, bot_name=bot_name, personality=personality
+    )
+    # Dialog language directive: pins the bot's REPLY language even when
+    # the conversation history is in a different language (e.g. after /lang
+    # switch from uz → ru, the prior msgs are still Uzbek and the LLM
+    # otherwise mirrors them). Notes-language directive controls vault content,
+    # which is independent.
+    dialog_directive = _DIALOG_LANG_DIRECTIVES.get(ui_lang, _DIALOG_LANG_DIRECTIVES["ru"])
+    notes_directive = _LANGUAGE_INSTRUCTIONS.get(notes_lang, _LANGUAGE_INSTRUCTIONS["ru"])
+    system_prompt = f"{system_prompt}\n\n---\n\n{dialog_directive}\n\n---\n\n{notes_directive}"
 
-    # Auto-recall: pre-fetch relevant context from LightRAG so the agent ALWAYS
-    # sees what the brain already knows about this topic, even if the user
-    # didn't ask explicitly. Uses only_need_context=True (no LLM call inside).
-    recall_ctx = await _fetch_recall_context(content)
+    # Auto-recall: await the task we kicked off at function start. By now the
+    # LightRAG roundtrip has been running concurrently with all Redis-bound
+    # work above, so total latency is max(recall, session_setup) instead of
+    # their sum. Bounded by _RECALL_TIMEOUT_SEC inside _fetch_recall_context.
+    recall_ctx = await recall_task if recall_task is not None else ""
+
+    # Slot binding: if the agent registered a pending slot before its last
+    # message, the literal user reply gets recorded and a SLOT_FILLED note is
+    # injected into this turn's context. See src/session/slots.py.
+    slot_note = await _maybe_consume_slot(user_id, session.session_id, content, ui_lang)
 
     openai_msgs = agent_loop.build_messages(system_prompt, profile, history, content)
+    if slot_note:
+        openai_msgs.insert(1, {"role": "system", "content": slot_note})
     if recall_ctx:
-        # Insert recall as a system message right after the main system prompt
+        # Recall header in ui_language (the agent's working language)
+        recall_header = _RECALL_HEADERS.get(ui_lang, _RECALL_HEADERS["ru"])
+        recall_footer = _RECALL_FOOTERS.get(ui_lang, _RECALL_FOOTERS["ru"])
         openai_msgs.insert(
             1,
             {
                 "role": "system",
-                "content": (
-                    "Контекст из твоей долгосрочной памяти (релевантные прошлые "
-                    f"заметки):\n\n{recall_ctx}\n\n"
-                    "Используй это чтобы не игнорировать прошлый опыт юзера. "
-                    "Не цитируй дословно — просто помни."
-                ),
+                "content": f"{recall_header}\n\n{recall_ctx}\n\n{recall_footer}",
             },
         )
     registry = get_registry()
@@ -745,11 +1261,28 @@ async def process_input(
     async def dispatch(name: str, args: dict) -> str:  # type: ignore[type-arg]
         return await registry.call(name, args, session_id=session.session_id)
 
-    reply = await agent_loop.run_chat(openai_msgs, registry.openai_specs(), dispatch)
+    # Streaming setup (text-mode only): send a placeholder bubble, edit it as
+    # tokens arrive. Hides total latency from the user — they see the bot
+    # "thinking" + writing rather than a single long wait. Voice/image keep
+    # the simple final-send path.
+    stream = await _make_stream_ui(user_id, ui_lang) if kind == "text" else None
+
+    on_text_cb = stream.on_text if stream else None
+    on_tool_cb = stream.on_tool_start if stream else None
+
+    reply = await agent_loop.run_chat(
+        openai_msgs,
+        registry.openai_specs(),
+        dispatch,
+        on_text=on_text_cb,
+        on_tool_start=on_tool_cb,
+        session_id=session.session_id,
+    )
 
     # Truncate replies that exceed Telegram's 4096 char limit (BadRequest otherwise)
     if len(reply) > 4000:
-        reply = reply[:3950] + "\n\n[…ответ обрезан, слишком длинный для Telegram]"
+        hint = _TRUNCATE_HINTS.get(ui_lang, _TRUNCATE_HINTS["ru"])
+        reply = reply[:3950] + f"\n\n{hint}"
 
     # Reply fingerprint — block accidental duplicate sends within last 5 replies
     import hashlib
@@ -757,29 +1290,38 @@ async def process_input(
     fp = hashlib.sha256(reply.encode("utf-8")).hexdigest()[:16].encode()
     fp_key = f"user:reply_fp:{user_id}"
     recent = await redis.lrange(fp_key, 0, 4)
-    if fp in recent:
+    is_duplicate = fp in recent
+    if is_duplicate:
         logger.warning(
             "duplicate reply suppressed",
             user_id=user_id,
             session_id=session.session_id,
             preview=reply[:100],
         )
-        return
-    await redis.lpush(fp_key, fp)
-    await redis.ltrim(fp_key, 0, 4)
-    await redis.expire(fp_key, 3600)
+    else:
+        await redis.lpush(fp_key, fp)
+        await redis.ltrim(fp_key, 0, 4)
+        await redis.expire(fp_key, 3600)
 
-    await session_mgr.push_msg(
-        redis,
-        session.session_id,
-        session_mgr.SessionMessage(
-            role="assistant",
-            content=reply,
-            ts=datetime.now(UTC),
-        ),
-    )
+        await session_mgr.push_msg(
+            redis,
+            session.session_id,
+            session_mgr.SessionMessage(
+                role="assistant",
+                content=reply,
+                ts=datetime.now(UTC),
+            ),
+        )
 
-    await reply_fn(reply)
+    # Deliver the final reply. Streaming path edits the placeholder in place;
+    # non-streaming path sends a fresh message via reply_fn.
+    if stream is not None:
+        delivered = await stream.finalize(reply)
+        if not delivered:
+            await reply_fn(reply)
+    elif not is_duplicate:
+        await reply_fn(reply)
+
     logger.info("replied", user_id=user_id, session_id=session.session_id, kind=kind)
 
 

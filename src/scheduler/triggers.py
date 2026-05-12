@@ -31,8 +31,13 @@ async def proactive_trigger(task_id: str, kind: str, payload: dict) -> None:  # 
     recent_sessions = _load_recent_sessions()
     task_context = f"kind={kind}\n{orjson.dumps(payload).decode()}"
 
+    from src.session.manager import get_ui_language
+
+    ui_lang = get_ui_language(profile)
+
     system = prompts.render(
         "proactive",
+        lang=ui_lang,
         task_context=task_context,
         user_profile=orjson.dumps(profile).decode() if profile else "{}",
         recent_sessions=recent_sessions,
@@ -101,18 +106,25 @@ async def _do_vault_pull_sync() -> None:
 
     if diff is None:
         # Conflict — alert user, NO auto-resolve
-        try:
-            from src.telegram.bot import get_bot
+        from src.i18n import t
+        from src.telegram.bot import get_bot
 
+        user_id = settings.allowed_user_ids[0]
+        ui_lang = "ru"
+        try:
+            from src.session.manager import get_profile, get_redis, get_ui_language
+
+            redis = await get_redis()
+            profile = await get_profile(redis, user_id)
+            ui_lang = get_ui_language(profile)
+        except Exception as exc_lang:
+            logger.warning("conflict alert lang lookup failed", error=str(exc_lang))
+
+        try:
             bot = get_bot()
-            user_id = settings.allowed_user_ids[0]
-            await bot.send_message(
-                user_id,
-                "⚠️ Конфликт при git pull в vault. Разруливай вручную в репо. "
-                "До разрешения синхронизация остановлена.",
-            )
+            await bot.send_message(user_id, t("scheduler.conflict_alert", ui_lang))
         except Exception as exc2:
-            logger.warning("conflict alert failed", error=str(exc2))
+            logger.warning("conflict alert send failed", error=str(exc2))
         return
 
     total = len(diff["added"]) + len(diff["modified"]) + len(diff["deleted"]) + len(diff["renamed"])
