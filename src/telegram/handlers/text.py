@@ -906,14 +906,19 @@ class _StreamUI:
     async def _edit(self, text: str, *, force: bool = False) -> bool:
         import time
 
+        from src.telegram.formatting import to_telegram_html
+
         truncated = text if len(text) < 4000 else text[:3950] + "…"
         if not force and truncated == self._last_text:
             return True
+        # Convert LLM-emitted Markdown to Telegram HTML — bot is created with
+        # parse_mode=HTML, raw **bold** would render literally.
+        rendered = to_telegram_html(truncated)
         try:
             await self._bot.edit_message_text(  # type: ignore[attr-defined]
                 chat_id=self._chat_id,
                 message_id=self._message_id,
-                text=truncated,
+                text=rendered,
             )
             self._last_text = truncated
             self._last_edit_at = time.monotonic()
@@ -1329,9 +1334,16 @@ async def process_input(
 async def handle_text(message: Message) -> None:
     if not message.text or not message.from_user:
         return
+    from src.telegram.formatting import to_telegram_html
+
+    async def reply_fn(text: str) -> None:
+        """Wrap every reply through Markdown→HTML so LLM-emitted **bold**
+        renders correctly under the bot's HTML parse mode."""
+        await message.answer(to_telegram_html(text))
+
     async with ChatActionSender.typing(bot=message.bot, chat_id=message.from_user.id):
         await _coalesce_text_message(
             message.from_user.id,
             message.text.strip(),
-            message.answer,
+            reply_fn,
         )

@@ -77,10 +77,15 @@ async def _process_photo(message: Message, user_id: int) -> None:
     finally:
         tmp_path.unlink(missing_ok=True)
 
+    from src.telegram.formatting import to_telegram_html
+
+    async def reply_fn(text: str) -> None:
+        await message.answer(to_telegram_html(text))
+
     await process_input(
         user_id,
         content,
-        message.answer,
+        reply_fn,
         kind="image",
         meta=meta,
     )

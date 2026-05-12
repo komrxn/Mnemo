@@ -71,10 +71,15 @@ async def handle_voice(message: Message) -> None:
         notes_lang = session_mgr.get_notes_language(profile)
         tag = {"ru": "[голосовое]", "en": "[voice]", "uz": "[ovozli]"}.get(notes_lang, "[voice]")
 
+        from src.telegram.formatting import to_telegram_html
+
+        async def reply_fn(text: str) -> None:
+            await message.answer(to_telegram_html(text))
+
         await process_input(
             user_id,
             f"{tag} {transcript}",
-            message.answer,
+            reply_fn,
             kind="voice",
             meta=meta,
         )
