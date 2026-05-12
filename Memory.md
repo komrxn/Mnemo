@@ -327,7 +327,85 @@ git_ops.pull_with_diff
 - **I** — Vault pull-and-sync (Obsidian → LightRAG через git pull каждые 2 мин)
 - **K** — mnemo-brain-mcp на PyPI v0.1.0 (форк desimpkins/daniel-lightrag-mcp)
 
-### v4 (этот рефакторинг) — senior-grade architecture
+### v5 — i18n (ru / en / uz)
+✅ См. IMPLEMENTATION_PLAN_V5.md
+
+- `src/i18n.py` + `src/locales/{ru,en,uz}.yaml` — `t(key, lang, **vars)` loader с fallback ru→key.
+- `prompts/{ru,en,uz}/*.md` — переезд `prompts/*.md` под language dirs. Loader `agent/prompts.py:render` теперь lang-aware.
+- Профиль обогащается `ui_language` + `notes_language` (независимые); миграция `_apply_language_migration` бэкфилит для существующих юзеров.
+- `/lang` inline-keyboard через `handle_lang_set` callback; `set_my_commands` для трёх языков.
+- `vault/section_headers.py` — `## Факты` / `## Facts` / `## Faktlar`, читатели распознают все три.
+
+### v6 — memory layers + read-before-ask (этот рефакторинг)
+✅ См. docs/adr/0001-memory-layers.md
+
+Идея: «забывание» возможно потому что read-path памяти проходит через лоссовый LLM-слой. Чиним структурно — два слоя памяти и hard-gate на recall.
+
+**M0 — ADR.** [docs/adr/0001-memory-layers.md](docs/adr/0001-memory-layers.md) фиксирует двухслойную память и read-path **slot → transcript → graph**.
+
+**M1 — Transcript layer.**
+- `src/vault/transcripts.py` — `seal_session(session_id, msgs, lang)` пишет `90_Transcripts/YYYY/MM/YYYY-MM-DD_<session_id>.md` с дословным диалогом и frontmatter `type: transcript`.
+- `escape_wikilinks` — `[[X]]` → `\[\[X\]\]` в теле transcript-нот, чтобы они не создавали edges в Obsidian / LightRAG.
+- `search_literal(query)` — substring grep по transcript-файлам (parses out frontmatter, чтобы `session_id:` не давал false positives).
+- `extractor.run_pipeline` сначала seal-ит transcript, потом extract — литерал сохранён даже при падении экстракции.
+- Онбординг тоже sealit-ся: `_seal_onboarding_transcript` в handlers/text.py на `[ONBOARDING_DONE]` И на force-end.
+- Конвертер ([lightrag_svc/converter.py](src/lightrag_svc/converter.py)) и `full_reindex` фильтруют `90_Transcripts/` по path и по `type: transcript`. **0 edges в KG от transcripts.**
+- `90_Transcripts/` добавлен в `_VAULT_FOLDERS` bootstrap.
+
+**M2 — Slot-binding.**
+- `src/session/slots.py` — `PendingSlot` / `FilledSlot` pydantic-модели, Redis-keys `slot:pending:{user_id}` (TTL 10min) + `slot:filled:{session_id}` (TTL 7d).
+- `consume_pending(redis, user_id, session_id, user_msg)` — эвристика «direct answer» (короткое, не кончается на `?`), записывает литерал в filled-list и чистит pending.
+- `src/tools/slots.py` — tool `set_pending_slot(field, question, entity_hint)`. Гейт: отказывает если `was_recall_done == False` (см. M3).
+- `handlers/text.py:_maybe_consume_slot` — обёртка, инжектит filled-slot в next LLM turn как system-сообщение `format_filled_for_prompt`.
+- `extractor.extract(msgs, session_id)` — собирает filled-slots в system prompt через `format_filled_list_for_extraction`. После парсинга — `_warn_missing_slot_literals` логирует если literal_value слота не попал ни в одну entity.
+- Onboarding и normal chat одинаково wire'нуты — slot Redis namespace разный (`slot:filled:onboarding` vs `slot:filled:ses_*`).
+- В extractor после успешного `apply_to_vault` filled-slots чистятся.
+
+**M3 — Recall tool.**
+- `src/tools/recall.py` — `recall(query, top_k)` агрегирует 4 источника **параллельно** (`asyncio.gather`): current session msgs, transcripts literal, vault ripgrep, LightRAG semantic.
+- Помечает `session:recall_done:{session_id}` в Redis на 120s.
+- `was_recall_done(session_id)` — экспортируется как helper для гейтов.
+- В onboarding dispatch передаётся `session_id="onboarding"`.
+- Все 4 источника swallow-ят свои исключения (`try/except` на каждый helper), один сломанный источник не валит остальные.
+
+**M4 — Proper-noun preservation в Entity.**
+- `vault/entity.py:extract_proper_noun_candidates(text)` — regex `[A-ZА-Я]{2,}` (ALL-CAPS) + `\w[a-z]+[A-Z]\w*` (CamelCase/iPhone). Plain Title-case (Forbes, Москва) намеренно НЕ ловятся — слишком много false positives.
+- `Entity._no_lost_proper_nouns` model_validator активируется через `context={"source_tokens": {...}}`; без context — legacy behavior (no-op).
+- `extractor._apply_entity` собирает source_tokens из `EntityInfo.name + new_facts + aliases + updates`, прокидывает в `Entity.model_validate(..., context=...)`.
+- `tools/obsidian._create_note` через `_source_tokens_from_slots(session_id)` подтягивает proper-nouns из filled slot literals и валидирует Entity с ними. Это закрывает онбординг-путь записи (где extract не используется).
+
+**M5 — Topic-shift suppression в Q&A.**
+- `session/topic_shift.py:detect()` — guard: если последняя реплика бота заканчивается на `?` (с учётом trailing emojis/punctuation) ИЛИ есть `slot:pending:*` → return `(False, "")` без LLM-call.
+- Защита: ответ юзера не порежется в новую сессию, если бот ему только что задал вопрос.
+
+**M6 — Cleanup + invariants.**
+- CLAUDE.md обновлён 8 новыми инвариантами memory layer.
+- `mypy` ошибки — все pre-existing v1/v2 baseline (та же история что в Memory.md §7).
+- Тесты выросли: 40 → 178.
+
+### v6+ — UX hardening (после первого live-теста)
+
+После того как юзер начал тестировать v5+v6, нашлись и пофиксились видимые UX-баги:
+
+**Streaming UI.** `src/agent/loop.py` теперь поддерживает `on_text` + `on_tool_start` callbacks через `_request_stream` (parses `delta.content` и инкрементально собирает `delta.tool_calls` по индексам). `OpenAI client timeout=300s` (5 мин). В `handlers/text.py` есть `_StreamUI` класс: посылает placeholder `…`, edit_message_text каждые ~0.9s или 25+ char delta, swap на «💭 проверяю память…» / «✍️ запоминаю…» при tool calls. Streaming подключён и к normal chat, и к онбординг flow.
+
+**Hard read-before-ask guard.** `src/agent/guard.py` — `is_ignorance_claim(text)` ловит 18 ru/en/uz паттернов («не помню», «I don't see», «menda yo'q», etc). В `run_chat` после финального текста LLM: если ignorance И `was_recall_done` = False → injection `GUARD_RETRY_SYSTEM_MESSAGE` (англоязычная директива «вызови recall, посмотри результат, отвечай»), повторный round. Max 1 guard retry. `set_pending_slot` тоже требует `was_recall_done`. **Soft prompt-инструкция превратилась в hard structural gate.**
+
+**Onboarding улучшения.**
+- `_build_onboarding_system_prompt(profile)` — чистая функция, вызывается на КАЖДОМ ходу. Закрывает баг «`/lang` switch не доходит до онбординга» (раньше system prompt кэшировался в `state.messages[0]`).
+- `_is_onboarding_looping(saved_messages)` — rapidfuzz `max(token_set_ratio, partial_ratio) >= 70` сравнивает последний assistant-ответ с предыдущими тремя. Если loop → force-end через тот же done-path (refine owner + seal transcript + bootstrap defaults). Закрывает реальный prod-баг где бот зацикливался на одних и тех же вопросах.
+
+**Personality auto-translate.** `commands._maybe_retranslate_personality` на `/lang` UI-switch вызывает gpt-5.4-mini, перегоняет stored personality в новый язык, чистит кавычки/markdown. Soft fallback на старое значение при ошибке. Закрывает баг «personality осталась узбекской после переключения на русский».
+
+**Memory > speed.** Per user feedback (memory `feedback_memory_over_speed.md`): никаких `asyncio.wait_for(timeout=...)` на recall/transcripts/extraction. OpenAI client timeout — да (внешний сервис). Внутренние memory-операции — нет. Скорость прячется через streaming UI и параллелизацию.
+
+**Parallelized recall.** В `process_input` recall запускается через `asyncio.create_task` сразу как пришло сообщение и крутится конкурентно с topic-shift + Redis-ops. Awaited только перед LLM call. Экономит max(recall, session_setup) вместо суммы.
+
+**Telegram Markdown → HTML.** `src/telegram/formatting.py:to_telegram_html` — конвертер MD-подмножества (`**bold**`, `_italic_`, `~~strike~~`, бэктики, headers `#` → `<b>`, bullets `-` → `•`, ссылки `[X](url)`). Бот создан с `parse_mode=HTML`, LLM выдаёт MD — раньше `**Юлю**` показывалось буквально. Конвертер применяется в `_StreamUI._edit` и в обёртках `reply_fn` (`handle_text/voice/photo`). Code fences (```\n...\n```) escape-ятся и не конвертируются.
+
+**Brain-feel copy.** Все progress labels переписаны: «ищу в памяти» → «проверяю память», «транскрибирую» → «обрабатываю», «работаю» → «думаю». На ru/en/uz, в `_TOOL_PROGRESS_LABELS` и в локалях `multimodal.*` / `save.*` / `pipeline.*`.
+
+### v4 (предыдущий рефакторинг) — senior-grade architecture
 ✅ См. AUDIT_AND_REFACTOR_PLAN.md
 
 - **Этап 1 — архитектурный фундамент:**
@@ -433,9 +511,9 @@ docker compose ps:
 ```
 
 ### Tests
-- **40/40 pytest** ✅
+- **178/178 pytest** ✅ (v6 + UX hardening доехали)
 - **ruff clean** ✅
-- **mypy 43 errors** — это legacy v1/v2 baseline, v3/v4 не вносят новых
+- **mypy 6 errors** — legacy v1/v2 baseline (`session/manager.py:157,162` redis типы, `lightrag_svc/indexer.py` `# type: ignore` unused, extractor unused-ignore). v5+v6 не вносят новых.
 
 ### PyPI
 - `mnemo-brain-mcp` v0.1.0 опубликован: https://pypi.org/project/mnemo-brain-mcp/
@@ -447,17 +525,21 @@ docker compose ps:
 - `user_language.md` — общается на русском
 - `feedback_models.md` — никаких gpt-4o/4-turbo, только gpt-5.4
 - `feedback_obsidian_graph_ux.md` — после изменений всегда проверять как граф выглядит в Obsidian глазами юзера
+- `feedback_skeptical_user_function_audit.md` — «аудит» = проверка каждой user-функции против кода, не README
+- `feedback_memory_over_speed.md` ⭐ NEW — НЕ таймаутить recall / transcripts / extraction; скорость через streaming UI, не через skip полноты
 
 ### Repository state
 - main branch
 - Последние коммиты:
   ```
-  873e1d9 rename: mnemo-mcp → mnemo-brain-mcp across docs
-  80cfc8e fix(extractor): route ALL non-owner typed_links through add_typed_link
-  ab6dc4e v3: brain-style graph + self-sync + multi-turn onboarding
-  0fbf7d4 v2: graph quality phases A-K + Phase 0 lint baseline
+  37becd0 copy: bot speaks like a second brain, not a tool
+  251d45c fix(telegram): render LLM markdown as HTML for bot's HTML parse mode
+  724fec8 v5+v6: i18n (ru/en/uz) + memory layers + read-before-ask guard
+  d8efe56 fix(git_ops): bypass dubious-ownership check via per-invocation safe.directory env
+  e09fcd0 v4: senior refactor — strict Entity contract, vault language, genre rules
   ```
-- v4 рефакторинг (этап 1-5 из AUDIT_AND_REFACTOR_PLAN.md) сделан, но **не закоммичен** ещё. См. `git status`.
+- Все v5+v6+UX hardening изменения **закоммичены**. `git status` чистый.
+- Origin/main отстаёт — пуш не делался, ждёт решения юзера.
 
 ---
 
@@ -558,12 +640,19 @@ claude mcp list
 
 ## 10. Известные мелкие issues / TODO
 
-- **Mypy 43 baseline errors** в v1/v2 коде (aiogram type-hints, redis async, scheduler types). Не блокирует, но неприятно. Чинить отдельным PR.
+- **Mypy 6 baseline errors** — все pre-existing v1/v2 типы (aiogram, redis async stub union). v5+v6 не добавили новых.
 - **MOC регенерируется на каждой сессии** — можно дебаунсить (одна перезапись в день вместо N).
-- **`tests/test_typed_links.py`** не была обновлена под новый `paths.resolve_inside_vault` (нужен дополнительный patch в фикстуре). Не критично — основные тесты ОК.
 - **vault_pull_sync** дёргает scheduler каждые 2 мин даже когда нет remote — пустой diff, лишь тратит CPU. Можно skip если remote=пустой.
-- **Lock в `src/session/locks.py`** создан но **не использован** ещё в process_input. Готов к интеграции в Этап 2 follow-up.
+- **Lock в `src/session/locks.py`** создан но **не использован** ещё в process_input. Готов к интеграции.
 - **TODO/FIXME в коде нет** — это политика CLAUDE.md.
+
+### Из аудита v6 — выявленные продуктовые гэпы (НЕ закрытые в этой итерации)
+
+- **Эвалов нет.** Заявка «лучше ChatGPT/Claude на памяти» — архитектурно обоснована, эмпирически непроверена. Нужен eval harness с 30+ фикстурных диалогов и метриками recall accuracy / completeness / integrity.
+- **Re-extraction loop.** Старые transcripts (после v6) могут содержать пропущенные extractor'ом сущности. Раз в неделю проходить и обогащать граф — не реализовано.
+- **Backfill старых сессий.** Сессии ДО v6 не имеют transcript-нот; восстановить из Redis нельзя (TTL истёк), частично можно из `10_Daily/*.md` если session_id остался.
+- **Proper-noun guard leaky.** Ловит ALL-CAPS + CamelCase. Plain Title-case (Forbes, Москва, Анна) не ловится — accepted trade-off (false positives на обычных капитализированных словах).
+- **MCP use-cases в Claude Code** — продуктово сильнейшая фишка, нет туториала «что спрашивать у Claude через mnemo-brain». Юзер сам должен догадываться.
 
 ---
 
