@@ -56,18 +56,18 @@ personality:
 
 save:
   no_active_session: нет активной сессии
-  empty_session: сессия пустая, сохранять нечего
-  processing: обрабатываю сессию...
-  shifting: 'вижу смену темы — сохраняю предыдущую сессию...'
-  failed: '⚠ не смог разобрать сессию: {{ error }}'
-  empty_result: пустая сессия, ничего не записал
-  compressing: сессия длинная, сжимаю контекст...
+  empty_session: сессия пустая, нечего запоминать
+  processing: '✨ запоминаю...'
+  shifting: 'тема поменялась — запоминаю предыдущий разговор...'
+  failed: '⚠ не смог разобрать разговор: {{ error }}'
+  empty_result: пустой разговор, ничего нового
+  compressing: '💭 разговор длинный, концентрирую главное...'
 
 pipeline:
-  extract_failed: 'не смог разобрать сессию: {{ error }}'
-  apply_failed: 'не смог записать в vault: {{ error }}'
+  extract_failed: 'не смог разобрать разговор: {{ error }}'
+  apply_failed: 'не смог сохранить в память: {{ error }}'
   summary: |-
-    Записал: {{ count }} заметок
+    Запомнил: {{ count }}
     Тема: {{ topic }}
     Итог: {{ summary }}{{ open_q }}
   open_questions_block: |2-
@@ -95,9 +95,9 @@ lang:
   unknown_action: не понял что менять
 
 multimodal:
-  transcribing: 'транскрибирую...'
+  transcribing: '🎙️ обрабатываю...'
   no_speech: не смог распознать речь
-  analyzing_image: 'анализирую изображение...'
+  analyzing_image: '👀 смотрю...'
   image_failed: 'не смог обработать изображение: {{ error }}'
 
 confirm:

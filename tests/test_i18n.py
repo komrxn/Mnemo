@@ -31,7 +31,7 @@ def test_missing_in_target_falls_back_to_ru() -> None:
 
 
 def test_jinja_var_interpolation() -> None:
-    assert t("save.failed", "ru", error="boom") == "⚠ не смог разобрать сессию: boom"
+    assert t("save.failed", "ru", error="boom") == "⚠ не смог разобрать разговор: boom"
 
 
 def test_normalize_lang_drops_unknown() -> None:

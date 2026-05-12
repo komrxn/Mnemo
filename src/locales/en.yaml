@@ -55,18 +55,18 @@ personality:
 
 save:
   no_active_session: no active session
-  empty_session: session is empty, nothing to save
-  processing: processing session...
-  shifting: 'I see a topic shift — saving the previous session...'
-  failed: '⚠ failed to process the session: {{ error }}'
-  empty_result: empty session, nothing recorded
-  compressing: session is long, compressing context...
+  empty_session: nothing to remember
+  processing: '✨ remembering...'
+  shifting: 'topic changed — remembering the previous chat...'
+  failed: '⚠ couldn''t make sense of that chat: {{ error }}'
+  empty_result: nothing new to remember
+  compressing: '💭 long chat, focusing on what matters...'
 
 pipeline:
-  extract_failed: "couldn't process session: {{ error }}"
-  apply_failed: "couldn't write to vault: {{ error }}"
+  extract_failed: "couldn't process chat: {{ error }}"
+  apply_failed: "couldn't save to memory: {{ error }}"
   summary: |-
-    Recorded: {{ count }} notes
+    Remembered: {{ count }}
     Topic: {{ topic }}
     Summary: {{ summary }}{{ open_q }}
   open_questions_block: |2-
@@ -94,9 +94,9 @@ lang:
   unknown_action: not sure what to change
 
 multimodal:
-  transcribing: 'transcribing...'
+  transcribing: '🎙️ processing...'
   no_speech: couldn't recognize speech
-  analyzing_image: 'analyzing image...'
+  analyzing_image: '👀 looking...'
   image_failed: 'image processing failed: {{ error }}'
 
 confirm:

@@ -55,18 +55,18 @@ personality:
 
 save:
   no_active_session: faol sessiya yo'q
-  empty_session: sessiya bo'sh, saqlashga hech narsa yo'q
-  processing: sessiyani qayta ishlayapman...
-  shifting: 'mavzu o''zgarganini ko''ryapman — oldingi sessiyani saqlayapman...'
-  failed: '⚠ sessiyani qayta ishlay olmadim: {{ error }}'
-  empty_result: bo'sh sessiya, hech narsa yozilmadi
-  compressing: sessiya uzun, kontekstni siqyapman...
+  empty_session: eslab qolish uchun hech narsa yo'q
+  processing: '✨ eslab qolayapman...'
+  shifting: 'mavzu o''zgardi — oldingi suhbatni eslab qolayapman...'
+  failed: '⚠ suhbatni tushuna olmadim: {{ error }}'
+  empty_result: yangi narsa yo'q
+  compressing: '💭 suhbat uzun, eng muhimga e''tibor qaratayapman...'
 
 pipeline:
-  extract_failed: "sessiyani qayta ishlay olmadim: {{ error }}"
-  apply_failed: "vault'ga yoza olmadim: {{ error }}"
+  extract_failed: "suhbatni qayta ishlay olmadim: {{ error }}"
+  apply_failed: "xotiraga yoza olmadim: {{ error }}"
   summary: |-
-    Yozildi: {{ count }} yozuv
+    Eslab qoldim: {{ count }}
     Mavzu: {{ topic }}
     Xulosa: {{ summary }}{{ open_q }}
   open_questions_block: |2-
@@ -94,9 +94,9 @@ lang:
   unknown_action: nimani o'zgartirishni tushunmadim
 
 multimodal:
-  transcribing: 'transkripsiya qilyapman...'
+  transcribing: '🎙️ qayta ishlayapman...'
   no_speech: nutqni taniy olmadim
-  analyzing_image: 'tasvirni tahlil qilyapman...'
+  analyzing_image: '👀 ko''ryapman...'
   image_failed: 'tasvirni qayta ishlay olmadim: {{ error }}'
 
 confirm:
