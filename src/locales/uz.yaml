@@ -175,7 +175,7 @@ settings:
   btn_synth_save: ✅ Saqlash
   btn_synth_rewrite: ✍️ Qaytadan yozish
   personality_too_short: 'juda qisqa — kamida 5 belgi'
-  personality_too_long: 'juda uzun — 300 belgigacha'
+  personality_too_long: 'juda uzun — 2000 belgigacha'
   personality_saved: '✓ Uslub yangilandi.'
   rule_added: '✓ Qoida qo''shildi.'
 

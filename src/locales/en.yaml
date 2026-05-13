@@ -175,7 +175,7 @@ settings:
   btn_synth_save: ✅ Save
   btn_synth_rewrite: ✍️ Rewrite
   personality_too_short: 'too short — at least 5 chars'
-  personality_too_long: 'too long — up to 300 chars'
+  personality_too_long: 'too long — up to 2000 chars'
   personality_saved: '✓ Style updated.'
   rule_added: '✓ Rule added.'
 

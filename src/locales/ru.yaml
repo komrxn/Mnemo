@@ -177,7 +177,7 @@ settings:
   btn_synth_save: ✅ Сохранить
   btn_synth_rewrite: ✍️ Переписать
   personality_too_short: 'слишком коротко — опиши подробнее (от 5 символов)'
-  personality_too_long: 'слишком длинно — до 300 символов'
+  personality_too_long: 'слишком длинно — до 2000 символов'
   personality_saved: '✓ Стиль обновлён.'
   rule_added: '✓ Правило добавлено.'
 

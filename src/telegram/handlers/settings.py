@@ -58,14 +58,14 @@ PERSONALITY_PRESETS: tuple[str, ...] = ("friendly", "direct", "sarcastic", "ment
 NAME_MIN_LEN = 1
 NAME_MAX_LEN = 30
 PERSONALITY_MIN_LEN = 5
-PERSONALITY_MAX_LEN = 300
-# A single appended rule is shorter — "no emojis" is fine; "5 paragraph manifesto"
-# is not. Cap small so accumulated rules don't bloat the system prompt.
+PERSONALITY_MAX_LEN = 2000
+# A single appended rule is shorter — "no emojis" is fine; long essays
+# don't belong as a single rule. Cap small so individual additions stay focused.
 RULE_MIN_LEN = 3
-RULE_MAX_LEN = 200
+RULE_MAX_LEN = 500
 # Total personality (base + appended rules) cap. Once we cross this, we still
 # allow it but log a warning — eventually we'll need a "consolidate rules" UI.
-PERSONALITY_HARD_CAP = 800
+PERSONALITY_HARD_CAP = 4000
 
 
 # ── synthesis (gpt-5.4-mini, low temperature, anti-отсебятина) ────────────────
@@ -172,7 +172,9 @@ async def _call_synth(system_prompt: str, raw: str) -> str:
             {"role": "user", "content": raw},
         ],
         temperature=0.3,
-        max_completion_tokens=200,
+        # Output stays compact (2-4 lines per the prompt) regardless of input
+        # length. 400 tokens is plenty even when raw input is 2000 chars.
+        max_completion_tokens=400,
     )
     text = (resp.choices[0].message.content or "").strip()
     # The model sometimes wraps despite the instruction.
