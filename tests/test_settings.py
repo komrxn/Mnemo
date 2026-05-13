@@ -264,20 +264,182 @@ async def test_try_consume_name_empty_rejected(fake_redis: FakeRedis) -> None:
 
 
 @pytest.mark.asyncio
-async def test_try_consume_personality_happy_path(fake_redis: FakeRedis) -> None:
-    _seed_profile(fake_redis, user_id=1, bot_name="Mnemo", personality="default")
+async def test_try_consume_personality_goes_through_synth_preview(fake_redis: FakeRedis) -> None:
+    """New flow: personality input is synthesized + previewed, NOT saved immediately.
+
+    Profile stays unchanged after user types; state moves to `preview_synth`
+    holding the synth draft. Save happens later via `p_save_synth` callback.
+    """
+    _seed_profile(fake_redis, user_id=1, bot_name="Mnemo", personality="default style")
     await st.set_awaiting_state(
         fake_redis, 1, awaiting="personality", menu_chat_id=1, menu_message_id=99
     )
 
     fake_bot = AsyncMock()
-    new_style = "Строгий, по делу, без эмодзи."
-    with patch("src.session.manager.get_redis", new=AsyncMock(return_value=fake_redis)):
-        result = await st.try_consume_text_input(1, new_style, fake_bot)
+    raw_input = "Строгий, без эмодзи, отвечай по делу"
+    synth_output = "Общается строго, без эмодзи, кратко и по делу."
+    with (
+        patch("src.session.manager.get_redis", new=AsyncMock(return_value=fake_redis)),
+        patch(
+            "src.telegram.handlers.settings._synthesize_full_personality",
+            new=AsyncMock(return_value=synth_output),
+        ),
+    ):
+        result = await st.try_consume_text_input(1, raw_input, fake_bot)
 
     assert result is True
+    # Profile NOT updated yet — user must confirm preview first.
     profile = await session_mgr.get_profile(fake_redis, 1)
-    assert profile["personality"] == new_style
+    assert profile["personality"] == "default style"
+    # State now in preview_synth with the synth draft.
+    state = await st.get_awaiting_state(fake_redis, 1)
+    assert state is not None
+    assert state["awaiting"] == "preview_synth"
+    assert state["draft"] == synth_output
+    # Menu was edited to show the preview.
+    fake_bot.edit_message_text.assert_called_once()
+    edit_kwargs = fake_bot.edit_message_text.call_args.kwargs
+    assert synth_output in edit_kwargs["text"]
+
+
+@pytest.mark.asyncio
+async def test_try_consume_personality_synth_failure_falls_back_to_raw(
+    fake_redis: FakeRedis,
+) -> None:
+    """If gpt-5.4-mini synth fails, we still show a preview with the raw input
+    so the user isn't stuck. Save still requires confirmation."""
+    _seed_profile(fake_redis, user_id=1, bot_name="Mnemo", personality="x")
+    await st.set_awaiting_state(
+        fake_redis, 1, awaiting="personality", menu_chat_id=1, menu_message_id=99
+    )
+
+    fake_bot = AsyncMock()
+    raw_input = "Дружелюбный, без формальностей"
+    with (
+        patch("src.session.manager.get_redis", new=AsyncMock(return_value=fake_redis)),
+        patch(
+            "src.telegram.handlers.settings._synthesize_full_personality",
+            new=AsyncMock(return_value=None),  # synth failed
+        ),
+    ):
+        result = await st.try_consume_text_input(1, raw_input, fake_bot)
+
+    assert result is True
+    # Draft is now the raw input (fallback).
+    state = await st.get_awaiting_state(fake_redis, 1)
+    assert state is not None
+    assert state["draft"] == raw_input
+
+
+@pytest.mark.asyncio
+async def test_try_consume_add_rule_synth_and_preview(fake_redis: FakeRedis) -> None:
+    """Add-rule flow: user types a request, LLM tightens it into a rule,
+    preview shows the appended-result. Personality NOT yet updated."""
+    _seed_profile(
+        fake_redis,
+        user_id=1,
+        bot_name="Mnemo",
+        personality="Дружелюбный, отвечает кратко.",
+    )
+    await st.set_awaiting_state(
+        fake_redis, 1, awaiting="add_rule", menu_chat_id=1, menu_message_id=99
+    )
+
+    fake_bot = AsyncMock()
+    raw_rule = "не используй эмодзи"
+    synth_rule = "Не использует эмодзи."
+    with (
+        patch("src.session.manager.get_redis", new=AsyncMock(return_value=fake_redis)),
+        patch(
+            "src.telegram.handlers.settings._synthesize_rule",
+            new=AsyncMock(return_value=synth_rule),
+        ),
+    ):
+        result = await st.try_consume_text_input(1, raw_rule, fake_bot)
+
+    assert result is True
+    # Profile unchanged — confirm step required.
+    profile = await session_mgr.get_profile(fake_redis, 1)
+    assert profile["personality"] == "Дружелюбный, отвечает кратко."
+    # State moved to preview_rule with synth as draft.
+    state = await st.get_awaiting_state(fake_redis, 1)
+    assert state["awaiting"] == "preview_rule"
+    assert state["draft"] == synth_rule
+    # Preview text mentions both the rule and the merged personality.
+    edit_kwargs = fake_bot.edit_message_text.call_args.kwargs
+    assert synth_rule in edit_kwargs["text"]
+    assert "Дружелюбный" in edit_kwargs["text"]
+
+
+@pytest.mark.asyncio
+async def test_try_consume_preview_state_passes_through(fake_redis: FakeRedis) -> None:
+    """If user types text while in preview state, settings ignores (returns
+    False) so the text reaches normal chat. Preview state stays alive for
+    the actual Yes/No buttons."""
+    _seed_profile(fake_redis, user_id=1, bot_name="Mnemo")
+    payload = orjson.dumps(
+        {
+            "awaiting": "preview_synth",
+            "menu_chat_id": 1,
+            "menu_message_id": 99,
+            "draft": "some synth",
+        }
+    )
+    fake_redis._kv[session_mgr.key_settings_state(1)] = payload
+
+    fake_bot = AsyncMock()
+    with patch("src.session.manager.get_redis", new=AsyncMock(return_value=fake_redis)):
+        result = await st.try_consume_text_input(1, "random user text", fake_bot)
+
+    assert result is False
+    # State preserved
+    state = await st.get_awaiting_state(fake_redis, 1)
+    assert state is not None
+    assert state["awaiting"] == "preview_synth"
+
+
+# ── _append_rule helper ──────────────────────────────────────────────────────
+
+
+def test_append_rule_to_empty_personality() -> None:
+    assert st._append_rule("", "Не используй эмодзи") == "Не используй эмодзи."
+
+
+def test_append_rule_strips_trailing_punctuation() -> None:
+    assert (
+        st._append_rule("Дружелюбный, кратко.", "Без эмодзи.")
+        == "Дружелюбный, кратко. Без эмодзи."
+    )
+
+
+def test_append_rule_handles_multiple_appends() -> None:
+    p = ""
+    p = st._append_rule(p, "Не используй эмодзи")
+    p = st._append_rule(p, "Обращайся на ты")
+    p = st._append_rule(p, "Отвечай короче")
+    assert p == "Не используй эмодзи. Обращайся на ты. Отвечай короче."
+
+
+# ── new keyboard button ─────────────────────────────────────────────────────
+
+
+def test_personality_keyboard_has_add_rule_button() -> None:
+    kb = st._personality_keyboard("ru")
+    callbacks = [row[0].callback_data for row in kb.inline_keyboard]
+    assert "settings:p_add_rule" in callbacks
+
+
+def test_synth_preview_keyboard_has_save_rewrite_back() -> None:
+    kb_synth = st._synth_preview_keyboard("ru", "synth")
+    flat = [btn.callback_data for row in kb_synth.inline_keyboard for btn in row]
+    assert "settings:p_save_synth" in flat
+    assert "settings:p_rewrite_synth" in flat
+    assert "settings:personality" in flat  # back
+
+    kb_rule = st._synth_preview_keyboard("ru", "rule")
+    flat_rule = [btn.callback_data for row in kb_rule.inline_keyboard for btn in row]
+    assert "settings:p_save_rule" in flat_rule
+    assert "settings:p_rewrite_rule" in flat_rule
 
 
 @pytest.mark.asyncio

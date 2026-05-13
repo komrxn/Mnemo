@@ -114,22 +114,70 @@ settings:
 
     Hozir: {{ current }}
 
-    Tayyor variantni tanla yoki o''zingni yoz:
+    Tayyor variantni tanla yoki sozla:
   personality_custom_view: |-
     ✍️ <b>O''z uslubim</b>
 
     Hozir: {{ current }}
 
-    Qanday gaplashishimni tasvirla (5-300 belgi).
-    Masalan: "qat'iy va aniq, smayliksiz".
+    Qanday gaplashishimni yoz. Bir gap bilan yoki
+    4 ta savolga javob ber — qaysi qulay:
+
+    1. Ohang — rasmiy / do'stona / aka-uka kabi / qat'iy?
+    2. Uzunlik — qisqa va aniq / batafsil misollar bilan?
+    3. Hazil qilsam, bahslashsam bo'ladimi?
+    4. Nima g'ashga tegadi — nima qilmayman?
+
+    Bitta xabarda erkin yoz.
+  personality_synth_preview: |-
+    🧠 Mana nimani tushundim:
+
+    "{{ synthesized }}"
+
+    Yangi uslub sifatida saqlaylikmi?
+  personality_synth_failed: |-
+    ⚠️ Chiroyli shakllantirolmadim — yozganingni saqlayman.
+
+    "{{ raw }}"
+
+    Saqlaylikmi?
+  add_rule_view: |-
+    ➕ <b>Qoida qo'shish</b>
+
+    Hozir: {{ current }}
+
+    Uslubimga qo'shadigan bitta qoidani yoz. Masalan:
+    • "smaylik ishlatma"
+    • "menga 'aka' deb murojaat qil"
+    • "men aytganni qaytarma"
+
+    Bu mavjud uslubga <b>qo'shiladi</b>, almashtirmaydi.
+  add_rule_preview: |-
+    ➕ Qo'shaman:
+
+    "{{ rule }}"
+
+    Yangi uslub:
+
+    "{{ updated }}"
+
+    Saqlaylikmi?
+  add_rule_failed: |-
+    ⚠️ Chiroyli shakllantirolmadim — bor holicha qo'shaman.
+
+    Saqlaylikmi?
   btn_personality_friendly: 😊 Do'stona
   btn_personality_direct: 🎯 Qat'iy
   btn_personality_sarcastic: 😏 Hazilkash
   btn_personality_mentor: 🧑‍🏫 Murabbiy
   btn_personality_custom: ✍️ O'z uslubim
+  btn_personality_add_rule: ➕ Qoida qo'shish
+  btn_synth_save: ✅ Saqlash
+  btn_synth_rewrite: ✍️ Qaytadan yozish
   personality_too_short: 'juda qisqa — kamida 5 belgi'
   personality_too_long: 'juda uzun — 300 belgigacha'
   personality_saved: '✓ Uslub yangilandi.'
+  rule_added: '✓ Qoida qo''shildi.'
 
   languages_view: |-
     🌐 <b>Tillar</b>

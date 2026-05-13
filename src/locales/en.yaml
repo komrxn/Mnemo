@@ -114,22 +114,70 @@ settings:
 
     Currently: {{ current }}
 
-    Pick a preset or write your own:
+    Pick a preset or tweak:
   personality_custom_view: |-
     ✍️ <b>Custom style</b>
 
     Currently: {{ current }}
 
-    Describe how I should talk (5-300 chars).
-    E.g.: "strict and to the point, no emojis".
+    Describe how I should talk to you. One sentence or
+    answer these 4 questions — whichever works:
+
+    1. Tone — formal / friendly / like a buddy / strict?
+    2. Length — short and to the point / detailed?
+    3. Can I tease, push back?
+    4. What annoys you — what to avoid?
+
+    Write freely in one message.
+  personality_synth_preview: |-
+    🧠 Here's what I got:
+
+    "{{ synthesized }}"
+
+    Save as your new style?
+  personality_synth_failed: |-
+    ⚠️ Couldn't refine it — I'll save what you wrote.
+
+    "{{ raw }}"
+
+    Save?
+  add_rule_view: |-
+    ➕ <b>Add a rule</b>
+
+    Currently: {{ current }}
+
+    Write one rule to add to my style. E.g.:
+    • "no emojis"
+    • "call me 'chief'"
+    • "don't repeat what I just said"
+
+    This <b>adds</b> to the current style, doesn't replace it.
+  add_rule_preview: |-
+    ➕ Adding rule:
+
+    "{{ rule }}"
+
+    New style will be:
+
+    "{{ updated }}"
+
+    Save?
+  add_rule_failed: |-
+    ⚠️ Couldn't refine — I'll add as-is.
+
+    Save?
   btn_personality_friendly: 😊 Friendly
   btn_personality_direct: 🎯 Direct
   btn_personality_sarcastic: 😏 Sarcastic
   btn_personality_mentor: 🧑‍🏫 Mentor
   btn_personality_custom: ✍️ Custom
+  btn_personality_add_rule: ➕ Add rule
+  btn_synth_save: ✅ Save
+  btn_synth_rewrite: ✍️ Rewrite
   personality_too_short: 'too short — at least 5 chars'
   personality_too_long: 'too long — up to 300 chars'
   personality_saved: '✓ Style updated.'
+  rule_added: '✓ Rule added.'
 
   languages_view: |-
     🌐 <b>Languages</b>
