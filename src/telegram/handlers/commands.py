@@ -56,7 +56,14 @@ async def cmd_start(message: Message) -> None:
     if reader.note_exists("_meta/portrait.md") and reader.note_exists("_meta/owner.md"):
         profile = await session_mgr.get_profile(redis, user_id)
         lang = session_mgr.get_ui_language(profile)
-        await message.answer(t("start.already_onboarded", lang))
+        # Re-attach the persistent reply keyboard — `/start` is the user's
+        # natural recovery path if they ever lost it.
+        from src.telegram.keyboards import main_reply_keyboard
+
+        await message.answer(
+            t("start.already_onboarded", lang),
+            reply_markup=main_reply_keyboard(lang),
+        )
         return
 
     await redis.delete(session_mgr.key_onboarding(user_id))

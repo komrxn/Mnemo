@@ -530,8 +530,14 @@ async def _seal_onboarding_transcript(
         logger.warning("onboarding transcript seal failed", error=str(exc))
 
 
-async def _finalize_onboarding() -> None:
-    """Bootstrap default scheduled tasks (called once after [ONBOARDING_DONE])."""
+async def _finalize_onboarding(user_id: int = 0, ui_lang: str = "ru") -> None:
+    """Bootstrap default scheduled tasks + reveal the main reply keyboard.
+
+    `user_id`/`ui_lang` default to safe values so legacy callers still work,
+    but new callers should pass them so the user sees `kb.activated` + the
+    persistent keyboard at the end of onboarding — that's the natural
+    moment to expose the buttons, before they start chatting freely.
+    """
     try:
         from src.scheduler.defaults import bootstrap_defaults
 
@@ -539,6 +545,20 @@ async def _finalize_onboarding() -> None:
         logger.info("default tasks bootstrapped after onboarding")
     except Exception as exc:
         logger.warning("default tasks bootstrap failed", error=str(exc))
+
+    if not user_id:
+        return
+    try:
+        from src.telegram.bot import get_bot
+        from src.telegram.keyboards import main_reply_keyboard
+
+        await get_bot().send_message(
+            user_id,
+            t("kb.activated", ui_lang),
+            reply_markup=main_reply_keyboard(ui_lang),
+        )
+    except Exception as exc:
+        logger.warning("reveal main keyboard failed", user_id=user_id, error=str(exc))
 
 
 async def _run_onboarding_execute(
@@ -610,7 +630,7 @@ async def _run_onboarding_execute(
         except Exception as exc:
             logger.warning("owner refine after onboarding failed", error=str(exc))
         await _seal_onboarding_transcript(messages, profile)
-        await _finalize_onboarding()
+        await _finalize_onboarding(user_id=user_id, ui_lang=ui_lang)
         return
 
     # Agent has a clarifying question — save state for follow-up turns
@@ -755,7 +775,7 @@ async def _handle_onboarding(
             except Exception as exc:
                 logger.warning("owner refine after onboarding failed", error=str(exc))
             await _seal_onboarding_transcript(saved_messages, profile)
-            await _finalize_onboarding()
+            await _finalize_onboarding(user_id=user_id, ui_lang=ui_lang)
             return True
 
         if turn_count + 1 >= _ONBOARDING_MAX_TURNS:
@@ -769,7 +789,7 @@ async def _handle_onboarding(
             except Exception as exc:
                 logger.warning("owner refine after onboarding failed", error=str(exc))
             await _seal_onboarding_transcript(saved_messages, profile)
-            await _finalize_onboarding()
+            await _finalize_onboarding(user_id=user_id, ui_lang=ui_lang)
             return True
         await redis.set(
             key,
@@ -1351,6 +1371,26 @@ async def handle_text(message: Message) -> None:
     if not message.text or not message.from_user:
         return
     from src.telegram.formatting import to_telegram_html
+    from src.telegram.keyboards import match_main_kb_button
+
+    # Reply-keyboard buttons send their localized label as plain text.
+    # Route to the matching command handler before the agent loop sees the
+    # message — otherwise the LLM would treat "💾 Запомнить" as user content.
+    button_cmd = match_main_kb_button(message.text)
+    if button_cmd is not None:
+        from src.telegram.handlers.commands import cmd_save, cmd_start, cmd_undo
+        from src.telegram.handlers.settings import cmd_settings
+
+        dispatch = {
+            "save": cmd_save,
+            "undo": cmd_undo,
+            "settings": cmd_settings,
+            "start": cmd_start,
+        }
+        handler = dispatch.get(button_cmd)
+        if handler is not None:
+            await handler(message)
+            return
 
     async def reply_fn(text: str) -> None:
         """Wrap every reply through Markdown→HTML so LLM-emitted **bold**

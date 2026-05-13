@@ -176,6 +176,14 @@ cmd_descriptions:
   undo: Oxirgi commit'ni qaytarish
   settings: Sozlamalar — ism, uslub, tillar
 
+kb:
+  save: 💾 Eslab qol
+  settings: ⚙️ Sozlamalar
+  undo: ↩️ Bekor qil
+  start: 🆕 Qaytadan
+  placeholder: "Biror narsa ayt…"
+  activated: '✨ Tayyor. Tugmalar pastda 👇'
+
 errors:
   tool_error: 'asbob xatosi {{ name }}: {{ error }}'
 

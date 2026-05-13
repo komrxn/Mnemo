@@ -177,6 +177,14 @@ cmd_descriptions:
   undo: Откатить последний коммит
   settings: Настройки — имя, стиль, языки
 
+kb:
+  save: 💾 Запомнить
+  settings: ⚙️ Настройки
+  undo: ↩️ Отменить
+  start: 🆕 Начать заново
+  placeholder: 'Расскажи что-нибудь…'
+  activated: '✨ Готов. Команды теперь снизу 👇'
+
 errors:
   tool_error: 'ошибка инструмента {{ name }}: {{ error }}'
 

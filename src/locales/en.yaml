@@ -176,6 +176,14 @@ cmd_descriptions:
   undo: Revert the last commit
   settings: Settings — name, style, languages
 
+kb:
+  save: 💾 Remember
+  settings: ⚙️ Settings
+  undo: ↩️ Undo
+  start: 🆕 Start over
+  placeholder: 'Tell me something…'
+  activated: '✨ Ready. Commands are below 👇'
+
 errors:
   tool_error: 'tool error {{ name }}: {{ error }}'
 
