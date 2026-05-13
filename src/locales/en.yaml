@@ -81,17 +81,69 @@ undo:
     handle it manually via git.
 
 lang:
-  current: |-
-    Current interface language: <b>{{ ui }}</b>
-    Current notes language: <b>{{ notes }}</b>
+  ui_updated: 'Dialog language: <b>{{ name }}</b>.'
+  notes_updated: 'Notes language: <b>{{ name }}</b>. New notes will be in this language.'
+
+settings:
+  menu: |-
+    ⚙️ <b>Settings</b>
+
+    🤖 Name: <b>{{ name }}</b>
+    🎭 Style: {{ personality }}
+    💬 Dialog language: <b>{{ ui_lang }}</b>
+    📓 Notes language: <b>{{ notes_lang }}</b>
+  btn_name: 🤖 Name
+  btn_personality: 🎭 Style
+  btn_languages: 🌐 Languages
+  btn_close: ❌ Close
+  btn_back: ↩️ Back
+  closed: settings closed
+
+  name_view: |-
+    🤖 <b>Bot name</b>
+
+    Currently: <b>{{ name }}</b>
+
+    Send a new name in one message (1-30 chars).
+  name_too_short: 'name cannot be empty — try again'
+  name_too_long: 'too long — up to 30 chars'
+  name_saved: '✓ My name is now <b>{{ name }}</b>.'
+
+  personality_view: |-
+    🎭 <b>Communication style</b>
+
+    Currently: {{ current }}
+
+    Pick a preset or write your own:
+  personality_custom_view: |-
+    ✍️ <b>Custom style</b>
+
+    Currently: {{ current }}
+
+    Describe how I should talk (5-300 chars).
+    E.g.: "strict and to the point, no emojis".
+  btn_personality_friendly: 😊 Friendly
+  btn_personality_direct: 🎯 Direct
+  btn_personality_sarcastic: 😏 Sarcastic
+  btn_personality_mentor: 🧑‍🏫 Mentor
+  btn_personality_custom: ✍️ Custom
+  personality_too_short: 'too short — at least 5 chars'
+  personality_too_long: 'too long — up to 300 chars'
+  personality_saved: '✓ Style updated.'
+
+  languages_view: |-
+    🌐 <b>Languages</b>
+
+    💬 Dialog: <b>{{ ui_lang }}</b>
+    📓 Notes: <b>{{ notes_lang }}</b>
 
     What do we change?
-  pick_ui: 'Pick interface language:'
-  pick_notes: 'Pick notes language:'
-  ui_updated: 'Interface language: <b>{{ name }}</b>.'
-  notes_updated: 'Notes language: <b>{{ name }}</b>. New notes will be in this language.'
-  cancelled: cancelled
-  unknown_action: not sure what to change
+  btn_lang_ui: 💬 Dialog language
+  btn_lang_notes: 📓 Notes language
+  pick_ui_lang: 'Pick dialog language:'
+  pick_notes_lang: 'Pick notes language:'
+
+  personality_value_empty: '<i>default</i>'
 
 multimodal:
   transcribing: '🎙️ processing...'
@@ -122,7 +174,7 @@ cmd_descriptions:
   start: Start or resume
   save: Save current session
   undo: Revert the last commit
-  lang: Change interface or notes language
+  settings: Settings — name, style, languages
 
 errors:
   tool_error: 'tool error {{ name }}: {{ error }}'

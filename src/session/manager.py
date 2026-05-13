@@ -43,6 +43,20 @@ def key_onboarding(user_id: int) -> str:
     return f"user:onboarding:{user_id}"
 
 
+def key_settings_state(user_id: int) -> str:
+    """Settings menu state: which field we're currently awaiting text for.
+
+    Stored value is an `orjson` blob like:
+        {"awaiting": "name" | "personality", "menu_chat_id": int, "menu_message_id": int}
+
+    Set when the user clicks "🤖 Имя" / "✍️ Свой стиль" — the menu is edited
+    to a prompt + cancel button, and the next user text message is consumed by
+    the settings flow instead of going into normal chat. TTL is short
+    (`_SETTINGS_STATE_TTL`) so an abandoned input doesn't shadow real messages.
+    """
+    return f"user:settings_state:{user_id}"
+
+
 def key_pending_buffer(user_id: int) -> str:
     """Redis list of incoming messages awaiting debounce window to close."""
     return f"user:pending:{user_id}"
@@ -57,6 +71,7 @@ def key_pending_token(user_id: int) -> str:
 
 _ACTIVE_TTL = 24 * 3600  # 24 h sliding
 _MSGS_TTL = 7 * 24 * 3600  # 7 days
+_SETTINGS_STATE_TTL = 10 * 60  # 10 min — user has time to type name/personality
 
 # ── models ────────────────────────────────────────────────────────────────────
 

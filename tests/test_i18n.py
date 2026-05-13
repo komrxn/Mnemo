@@ -45,7 +45,7 @@ def test_normalize_lang_drops_unknown() -> None:
 def test_all_locales_present() -> None:
     for lang in LANGUAGES:
         # core keys must exist in every locale to avoid runtime fallback noise
-        for key in ("save.no_active_session", "lang.cancelled", "confirm.confirmed"):
+        for key in ("save.no_active_session", "lang.ui_updated", "confirm.confirmed"):
             assert t(key, lang) != key, f"{key} missing in {lang}"
 
 
@@ -57,7 +57,8 @@ def test_language_label_self_reference() -> None:
 
 def test_cmd_descriptions_present_in_all_locales() -> None:
     for lang in LANGUAGES:
-        for cmd in ("start", "save", "undo", "lang"):
+        # /lang was removed in favor of /settings → Languages submenu
+        for cmd in ("start", "save", "undo", "settings"):
             val = t(f"cmd_descriptions.{cmd}", lang)
             assert val != f"cmd_descriptions.{cmd}", f"missing cmd desc {cmd}/{lang}"
             # Telegram limits command descriptions to 256 chars

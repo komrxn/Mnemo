@@ -12,7 +12,7 @@ _COMMANDS: tuple[tuple[str, str], ...] = (
     ("start", "cmd_descriptions.start"),
     ("save", "cmd_descriptions.save"),
     ("undo", "cmd_descriptions.undo"),
-    ("lang", "cmd_descriptions.lang"),
+    ("settings", "cmd_descriptions.settings"),
 )
 
 

@@ -82,17 +82,69 @@ undo:
     разрули вручную через git.
 
 lang:
-  current: |-
-    Текущий язык интерфейса: <b>{{ ui }}</b>
-    Текущий язык заметок: <b>{{ notes }}</b>
+  ui_updated: 'Язык диалога: <b>{{ name }}</b>.'
+  notes_updated: 'Язык заметок: <b>{{ name }}</b>. Новые заметки будут на этом языке.'
+
+settings:
+  menu: |-
+    ⚙️ <b>Настройки</b>
+
+    🤖 Имя: <b>{{ name }}</b>
+    🎭 Стиль: {{ personality }}
+    💬 Язык диалога: <b>{{ ui_lang }}</b>
+    📓 Язык заметок: <b>{{ notes_lang }}</b>
+  btn_name: 🤖 Имя
+  btn_personality: 🎭 Стиль
+  btn_languages: 🌐 Языки
+  btn_close: ❌ Закрыть
+  btn_back: ↩️ Назад
+  closed: настройки закрыты
+
+  name_view: |-
+    🤖 <b>Имя бота</b>
+
+    Сейчас: <b>{{ name }}</b>
+
+    Пришли новое имя одним сообщением (1-30 символов).
+  name_too_short: 'имя не может быть пустым — пришли ещё раз'
+  name_too_long: 'слишком длинное имя — до 30 символов'
+  name_saved: '✓ Теперь меня зовут <b>{{ name }}</b>.'
+
+  personality_view: |-
+    🎭 <b>Стиль общения</b>
+
+    Сейчас: {{ current }}
+
+    Выбери готовый или напиши свой:
+  personality_custom_view: |-
+    ✍️ <b>Свой стиль</b>
+
+    Сейчас: {{ current }}
+
+    Опиши как я должен общаться (5-300 символов).
+    Например: «строго и по делу, без эмодзи».
+  btn_personality_friendly: 😊 Дружелюбный
+  btn_personality_direct: 🎯 Строгий
+  btn_personality_sarcastic: 😏 Саркастичный
+  btn_personality_mentor: 🧑‍🏫 Ментор
+  btn_personality_custom: ✍️ Свой стиль
+  personality_too_short: 'слишком коротко — опиши подробнее (от 5 символов)'
+  personality_too_long: 'слишком длинно — до 300 символов'
+  personality_saved: '✓ Стиль обновлён.'
+
+  languages_view: |-
+    🌐 <b>Языки</b>
+
+    💬 Диалог: <b>{{ ui_lang }}</b>
+    📓 Заметки: <b>{{ notes_lang }}</b>
 
     Что меняем?
-  pick_ui: 'Выбери язык интерфейса:'
-  pick_notes: 'Выбери язык заметок:'
-  ui_updated: 'Язык интерфейса: <b>{{ name }}</b>.'
-  notes_updated: 'Язык заметок: <b>{{ name }}</b>. Новые заметки будут на этом языке.'
-  cancelled: отменено
-  unknown_action: не понял что менять
+  btn_lang_ui: 💬 Язык диалога
+  btn_lang_notes: 📓 Язык заметок
+  pick_ui_lang: 'Выбери язык диалога:'
+  pick_notes_lang: 'Выбери язык заметок:'
+
+  personality_value_empty: '<i>по умолчанию</i>'
 
 multimodal:
   transcribing: '🎙️ обрабатываю...'
@@ -123,7 +175,7 @@ cmd_descriptions:
   start: Начать или возобновить
   save: Сохранить текущую сессию
   undo: Откатить последний коммит
-  lang: Сменить язык интерфейса или заметок
+  settings: Настройки — имя, стиль, языки
 
 errors:
   tool_error: 'ошибка инструмента {{ name }}: {{ error }}'

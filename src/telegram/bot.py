@@ -12,6 +12,7 @@ from aiogram.types import CallbackQuery, Message, TelegramObject
 from src.config import settings
 from src.telegram.handlers.commands import router as commands_router
 from src.telegram.handlers.photo import router as photo_router
+from src.telegram.handlers.settings import router as settings_router
 from src.telegram.handlers.text import router as text_router
 from src.telegram.handlers.voice import router as voice_router
 
@@ -83,9 +84,12 @@ def create_bot_and_dispatcher() -> tuple[Bot, Dispatcher]:
     )
     dp = Dispatcher()
     dp.update.outer_middleware(WhitelistMiddleware(settings.allowed_user_ids))
-    # Order matters: confirmations and commands before media, then catch-all text
+    # Order matters: confirmations and commands before media, then catch-all
+    # text. `settings` has its own commands + callback prefix, so it slots in
+    # right after the main commands router.
     dp.include_router(_confirm_router)
     dp.include_router(commands_router)
+    dp.include_router(settings_router)
     dp.include_router(voice_router)
     dp.include_router(photo_router)
     dp.include_router(text_router)

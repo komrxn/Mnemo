@@ -1162,6 +1162,18 @@ async def process_input(
     meta: dict[str, str] | None = None,
 ) -> None:
     """Core message processing: session → agent loop → store → reply."""
+    # Settings input gate — must run BEFORE onboarding so the user can edit
+    # their name/personality even when an onboarding-state ghost exists.
+    if kind == "text":
+        from src.telegram.bot import get_bot
+        from src.telegram.handlers.settings import try_consume_text_input
+
+        try:
+            if await try_consume_text_input(user_id, content, get_bot()):
+                return
+        except Exception as exc:
+            logger.warning("settings text-input consumer failed", error=str(exc))
+
     if kind == "text" and await _handle_onboarding(user_id, content, reply_fn):
         return
 
