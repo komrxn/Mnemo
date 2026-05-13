@@ -55,7 +55,7 @@ def test_main_keyboard_buttons_have_localized_labels(ui_lang: str) -> None:
     [
         ("💾 Запомнить", "save"),
         ("⚙️ Настройки", "settings"),
-        ("↩️ Отменить", "undo"),
+        ("⚠️ Отменить", "undo"),  # warning emoji since the button is destructive
         ("🆕 Начать заново", "start"),
         # English variants resolve too — cross-lang tolerance after /lang switch
         ("💾 Remember", "save"),
@@ -103,3 +103,64 @@ def test_every_main_kb_label_resolves_to_its_command() -> None:
             assert match_main_kb_button(label) == command, (
                 f"{lang}/{key} → {label!r} did not resolve to {command!r}"
             )
+
+
+# ── confirmation flow for destructive buttons ────────────────────────────────
+
+
+def test_undo_label_carries_warning_emoji() -> None:
+    """Undo is destructive — the label itself signals risk via ⚠️."""
+    from src.i18n import t
+
+    for lang in ("ru", "en", "uz"):
+        assert "⚠️" in t("kb.undo", lang), f"undo missing ⚠️ in {lang}"
+
+
+def test_save_and_undo_are_in_confirm_actions() -> None:
+    """save and undo must both require a Yes/No prompt; settings/start must not."""
+    from src.telegram.keyboards import KB_CONFIRM_ACTIONS
+
+    assert KB_CONFIRM_ACTIONS == {"save", "undo"}
+
+
+@pytest.mark.parametrize("action", ["save", "undo"])
+@pytest.mark.parametrize("ui_lang", ["ru", "en", "uz"])
+def test_kb_confirm_keyboard_has_yes_and_no(action: str, ui_lang: str) -> None:
+    from src.telegram.keyboards import kb_confirm_keyboard
+
+    kb = kb_confirm_keyboard(action, ui_lang)
+    assert len(kb.inline_keyboard) == 1
+    row = kb.inline_keyboard[0]
+    assert len(row) == 2
+    callbacks = {btn.callback_data for btn in row}
+    assert callbacks == {f"kb_confirm:{action}:yes", f"kb_confirm:{action}:no"}
+
+
+def test_kb_confirm_keyboard_buttons_are_localized() -> None:
+    """Yes/No labels must be non-fallback strings in every locale."""
+    from src.i18n import t
+    from src.telegram.keyboards import kb_confirm_keyboard
+
+    for lang in ("ru", "en", "uz"):
+        kb = kb_confirm_keyboard("save", lang)
+        row = kb.inline_keyboard[0]
+        yes_text = row[0].text
+        no_text = row[1].text
+        # Match what t() returns — guards against accidental hardcoding
+        assert yes_text == t("kb.confirm_yes", lang)
+        assert no_text == t("kb.confirm_no", lang)
+        # Sanity: neither is empty or shows the raw key
+        assert yes_text and not yes_text.startswith("kb.")
+        assert no_text and not no_text.startswith("kb.")
+
+
+def test_confirm_prompts_present_in_all_locales() -> None:
+    """The warning text shown above the Yes/No buttons must exist in ru/en/uz."""
+    from src.i18n import t
+
+    for lang in ("ru", "en", "uz"):
+        for key in ("kb.confirm_save", "kb.confirm_undo"):
+            val = t(key, lang)
+            assert val and val != key
+            # Should mention what's happening, not be a one-liner placeholder
+            assert len(val) > 30, f"{lang}/{key} suspiciously short: {val!r}"

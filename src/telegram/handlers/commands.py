@@ -130,12 +130,14 @@ async def handle_onboard_notes_lang(callback: CallbackQuery) -> None:
     await callback.answer()
 
 
-@router.message(Command("save"))
-async def cmd_save(message: Message) -> None:
-    if not message.from_user:
-        return
+async def _do_save(user_id: int, send_message: Message) -> None:
+    """Core /save logic. Takes a Message to reply against (so both the slash-
+    command path and the kb-confirm callback path can share this body).
 
-    user_id = message.from_user.id
+    `send_message.answer` posts in the chat — `from_user` is *not* read here,
+    which is what lets us call this from a callback context where the
+    underlying message belongs to the bot, not the user.
+    """
     redis = await session_mgr.get_redis()
     profile = await session_mgr.get_profile(redis, user_id)
     ui_lang = session_mgr.get_ui_language(profile)
@@ -143,43 +145,47 @@ async def cmd_save(message: Message) -> None:
     session = await session_mgr.close_session(redis, user_id)
 
     if session is None:
-        await message.answer(t("save.no_active_session", ui_lang))
+        await send_message.answer(t("save.no_active_session", ui_lang))
         return
 
     msgs = await session_mgr.get_msgs(redis, session.session_id)
 
     user_msgs = [m for m in msgs if m.role == "user"]
     if len(user_msgs) < 1:
-        await message.answer(t("save.empty_session", ui_lang))
+        await send_message.answer(t("save.empty_session", ui_lang))
         return
 
-    await message.answer(t("save.processing", ui_lang))
+    await send_message.answer(t("save.processing", ui_lang))
 
     from src.agent.extractor import run_pipeline
 
     async def notify(text: str) -> None:
-        await message.answer(text)
+        await send_message.answer(text)
 
     try:
         summary = await run_pipeline(session, msgs, notify)
-        await message.answer(summary)
+        await send_message.answer(summary)
         logger.info("save complete", session_id=session.session_id, user_id=user_id)
     except Exception as exc:
         logger.error("save failed", session_id=session.session_id, error=str(exc))
-        await message.answer(t("save.failed", ui_lang, error=str(exc)))
+        await send_message.answer(t("save.failed", ui_lang, error=str(exc)))
 
 
-@router.message(Command("undo"))
-async def cmd_undo(message: Message) -> None:
-    """Revert last vault commit — but refuse if it touched onboarding files."""
+@router.message(Command("save"))
+async def cmd_save(message: Message) -> None:
+    if not message.from_user:
+        return
+    await _do_save(message.from_user.id, message)
+
+
+async def _do_undo(user_id: int, send_message: Message) -> None:
+    """Core /undo logic — same split as `_do_save` so the kb-confirm
+    callback can reuse it."""
     from pathlib import Path
 
     from src.config import settings
     from src.vault import git_ops
 
-    if not message.from_user:
-        return
-    user_id = message.from_user.id
     redis = await session_mgr.get_redis()
     profile = await session_mgr.get_profile(redis, user_id)
     ui_lang = session_mgr.get_ui_language(profile)
@@ -191,12 +197,74 @@ async def cmd_undo(message: Message) -> None:
         last_files = ""
     onboarding_markers = ("_meta/owner.md", "_meta/portrait.md")
     if any(marker in last_files for marker in onboarding_markers):
-        await message.answer(t("undo.refuse_onboarding", ui_lang))
+        await send_message.answer(t("undo.refuse_onboarding", ui_lang))
         return
 
     result = await git_ops.revert_head(vault)
-    await message.answer(result)
-    logger.info("undo", result=result)
+    await send_message.answer(result)
+    logger.info("undo", result=result, user_id=user_id)
+
+
+@router.message(Command("undo"))
+async def cmd_undo(message: Message) -> None:
+    """Revert last vault commit — but refuse if it touched onboarding files."""
+    if not message.from_user:
+        return
+    await _do_undo(message.from_user.id, message)
+
+
+# ── kb-confirm callback (triggered from warning messages on save/undo taps) ──
+
+
+@router.callback_query(F.data.startswith("kb_confirm:"))
+async def handle_kb_confirm(callback: CallbackQuery) -> None:
+    """Two-step confirmation for destructive reply-keyboard buttons.
+
+    Flow: user taps "💾 Запомнить" or "⚠️ Отменить" → `handle_text` sends a
+    warning message with this keyboard → user picks Yes/No → we either run
+    the action (and delete the warning) or just delete + toast "cancelled".
+
+    Callback data: `kb_confirm:<action>:<yes|no>`. Action ∈ {save, undo}.
+    Any unknown action is silently ignored so a stale button from an old
+    deploy can't crash us.
+    """
+    if not callback.from_user or not callback.data:
+        return
+    parts = callback.data.split(":")
+    if len(parts) != 3:
+        return
+    _, action, answer = parts
+
+    user_id = callback.from_user.id
+    redis = await session_mgr.get_redis()
+    profile = await session_mgr.get_profile(redis, user_id)
+    ui_lang = session_mgr.get_ui_language(profile)
+
+    # Drop the warning bubble immediately — either we run the action and its
+    # own messages take over, or the user explicitly cancelled.
+    if isinstance(callback.message, Message):
+        try:
+            await callback.message.delete()
+        except Exception:
+            try:
+                await callback.message.edit_reply_markup(reply_markup=None)
+            except Exception:
+                pass
+
+    if answer == "no":
+        await callback.answer(t("kb.confirm_cancelled", ui_lang))
+        return
+
+    if not isinstance(callback.message, Message):
+        await callback.answer()
+        return
+
+    await callback.answer()
+    if action == "save":
+        await _do_save(user_id, callback.message)
+    elif action == "undo":
+        await _do_undo(user_id, callback.message)
+    # else: unknown action, silently ignore (we already deleted the bubble)
 
 
 # /lang command was removed in favor of /settings → Languages submenu.

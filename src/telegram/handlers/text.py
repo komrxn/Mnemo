@@ -1371,19 +1371,36 @@ async def handle_text(message: Message) -> None:
     if not message.text or not message.from_user:
         return
     from src.telegram.formatting import to_telegram_html
-    from src.telegram.keyboards import match_main_kb_button
+    from src.telegram.keyboards import (
+        KB_CONFIRM_ACTIONS,
+        kb_confirm_keyboard,
+        match_main_kb_button,
+    )
 
     # Reply-keyboard buttons send their localized label as plain text.
     # Route to the matching command handler before the agent loop sees the
     # message — otherwise the LLM would treat "💾 Запомнить" as user content.
     button_cmd = match_main_kb_button(message.text)
     if button_cmd is not None:
-        from src.telegram.handlers.commands import cmd_save, cmd_start, cmd_undo
+        from src.telegram.handlers.commands import cmd_start
         from src.telegram.handlers.settings import cmd_settings
 
+        # Destructive buttons (save / undo) go through a two-step inline
+        # confirm — accidental taps shouldn't blow away a session or rewind
+        # the vault. See `kb_confirm_keyboard` in keyboards.py and the
+        # `handle_kb_confirm` callback in commands.py.
+        if button_cmd in KB_CONFIRM_ACTIONS:
+            redis = await session_mgr.get_redis()
+            profile = await session_mgr.get_profile(redis, message.from_user.id)
+            ui_lang = session_mgr.get_ui_language(profile)
+            confirm_key = "kb.confirm_save" if button_cmd == "save" else "kb.confirm_undo"
+            await message.answer(
+                t(confirm_key, ui_lang),
+                reply_markup=kb_confirm_keyboard(button_cmd, ui_lang),
+            )
+            return
+
         dispatch = {
-            "save": cmd_save,
-            "undo": cmd_undo,
             "settings": cmd_settings,
             "start": cmd_start,
         }

@@ -62,6 +62,36 @@ def main_reply_keyboard(ui_lang: str) -> ReplyKeyboardMarkup:
     )
 
 
+# Actions that route through a confirmation prompt instead of firing directly.
+# Tied to the reply-keyboard buttons of the same name; settings/start do NOT
+# need a confirm step (they're idempotent / read-only with respect to memory).
+KB_CONFIRM_ACTIONS: frozenset[str] = frozenset({"save", "undo"})
+
+
+def kb_confirm_keyboard(action: str, ui_lang: str) -> InlineKeyboardMarkup:
+    """Two-button inline keyboard (Yes/No) attached to the warning message
+    that pops up when a destructive reply-keyboard button is tapped.
+
+    Callback data shape: `kb_confirm:<action>:yes|no`. The handler in
+    `handlers/commands.py` reads `<action>` and dispatches to the matching
+    impl, or shows a "cancelled" toast on `no`.
+    """
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=t("kb.confirm_yes", ui_lang),
+                    callback_data=f"kb_confirm:{action}:yes",
+                ),
+                InlineKeyboardButton(
+                    text=t("kb.confirm_no", ui_lang),
+                    callback_data=f"kb_confirm:{action}:no",
+                ),
+            ]
+        ]
+    )
+
+
 def match_main_kb_button(text: str) -> str | None:
     """If `text` matches a known reply-keyboard label (any language), return
     the corresponding command name (e.g. "save"). Else None.

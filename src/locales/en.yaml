@@ -179,10 +179,25 @@ cmd_descriptions:
 kb:
   save: 💾 Remember
   settings: ⚙️ Settings
-  undo: ↩️ Undo
+  undo: ⚠️ Undo
   start: 🆕 Start over
   placeholder: 'Tell me something…'
   activated: '✨ Ready. Commands are below 👇'
+  confirm_save: |-
+    💾 <b>Remember</b> — I'll close the current chat and save it to long-term memory.
+
+    Everything we just discussed will become a separate topic going forward.
+
+    Sure?
+  confirm_undo: |-
+    ⚠️ <b>Undo</b> — I'll revert the <b>last</b> thing I wrote to memory.
+
+    It's a git-revert on the latest commit in the vault. Onboarding files (owner/portrait) are protected.
+
+    Sure?
+  confirm_yes: ✅ Yes
+  confirm_no: ❌ No
+  confirm_cancelled: cancelled
 
 errors:
   tool_error: 'tool error {{ name }}: {{ error }}'
