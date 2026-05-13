@@ -184,17 +184,17 @@ kb:
   placeholder: 'Tell me something…'
   activated: '✨ Ready. Commands are below 👇'
   confirm_save: |-
-    💾 <b>Remember</b> — I'll close the current chat and save it to long-term memory.
+    💾 I'll remember our whole chat and put it in memory — so I can come back to it later.
 
-    Everything we just discussed will become a separate topic going forward.
+    Changed your mind? Tap <b>⚠️ Undo</b> and I'll remove the latest save.
 
-    Sure?
+    Save it?
   confirm_undo: |-
-    ⚠️ <b>Undo</b> — I'll revert the <b>last</b> thing I wrote to memory.
+    ⚠️ I'll erase what I <b>recently</b> remembered.
 
-    It's a git-revert on the latest commit in the vault. Onboarding files (owner/portrait) are protected.
+    Older memories and your profile stay safe — only the latest save is removed.
 
-    Sure?
+    Undo it?
   confirm_yes: ✅ Yes
   confirm_no: ❌ No
   confirm_cancelled: cancelled

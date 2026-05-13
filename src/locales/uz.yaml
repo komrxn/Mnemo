@@ -184,17 +184,17 @@ kb:
   placeholder: "Biror narsa ayt…"
   activated: '✨ Tayyor. Tugmalar pastda 👇'
   confirm_save: |-
-    💾 <b>Eslab qol</b> — joriy suhbatni yopaman va uzoq xotiraga saqlayman.
+    💾 Butun suhbatimizni eslab qolaman va xotiraga qo'shaman — keyin qaytib kelishim mumkin bo'ladi.
 
-    Hozirgina muhokama qilganlarimiz bundan keyin alohida mavzu bo'ladi.
+    Fikr o'zgartirsang — <b>⚠️ Bekor qil</b> tugmasini bos, oxirgi yozuvni olib tashlayman.
 
-    Aniqmi?
+    Saqlaylikmi?
   confirm_undo: |-
-    ⚠️ <b>Bekor qil</b> — xotiraga yozgan <b>so'nggi</b> narsani qaytaraman.
+    ⚠️ <b>Yaqinda</b> eslab qolganlarimni o'chiraman.
 
-    Bu vault'dagi oxirgi commit'ga git-revert. Onboarding fayllari (owner/portrait) himoyalangan.
+    Eski xotiralar va profiling tegmaydi — faqat oxirgi yozuv olib tashlanadi.
 
-    Aniqmi?
+    Bekor qilaylikmi?
   confirm_yes: ✅ Ha
   confirm_no: ❌ Yo'q
   confirm_cancelled: bekor qilindi
