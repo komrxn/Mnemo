@@ -16,6 +16,20 @@ class DedupCandidate(BaseModel):
     score: int  # 0-100
 
 
+# Person dedup uses pure Levenshtein (fuzz.ratio) instead of WRatio because
+# WRatio mixes in partial_ratio, which gives 100 to any substring containment
+# ("Лола" ⊂ "Хилола" → WRatio≈90). That score crosses the hard-merge gate and
+# silently routes a real person's note into someone else's — the worst class
+# of memory bug. For people we treat substring overlap as evidence of being
+# DIFFERENT (parent/child often share name fragments), not the same.
+#
+# For non-person types (theme/job/thought/memory) WRatio is kept: consolidating
+# "финансовое управление" and "бухгалтерия компании" under one theme is a
+# benign reduction; merging the wrong human is catastrophic.
+_PERSON_SCORER = fuzz.ratio
+_DEFAULT_SCORER = fuzz.WRatio
+
+
 async def find_similar(
     note_type: str,
     title: str,
@@ -36,6 +50,8 @@ async def find_similar(
     if not folder_path.exists():
         return []
 
+    scorer = _PERSON_SCORER if note_type == "person" else _DEFAULT_SCORER
+
     def _scan() -> list[DedupCandidate]:
         queries = [title.lower()] + [a.lower() for a in (aliases or [])]
         candidates: dict[str, int] = {}
@@ -51,7 +67,7 @@ async def find_similar(
             best = 0
             for q in queries:
                 for name in names:
-                    score = int(fuzz.WRatio(q, name))
+                    score = int(scorer(q, name))
                     if score > best:
                         best = score
 

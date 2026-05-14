@@ -27,6 +27,16 @@ logger = structlog.get_logger()
 #                   ≥ SOFT → log warning but allow.
 _DEDUP_HARD = 85
 _DEDUP_SOFT = 70
+# Person merges are catastrophic (links are bidirectional, undo is manual),
+# so we ratchet the gate higher AND we already use Levenshtein-only scoring
+# for persons in `find_similar` (no substring boost). With those two combined,
+# "Лола" vs "Хилола" drops to 80 — below the 92 gate — and stays as a SOFT
+# warning instead of silently rerouting mother's note into daughter's.
+_DEDUP_HARD_PERSON = 92
+
+
+def _hard_threshold(note_type: str) -> int:
+    return _DEDUP_HARD_PERSON if note_type == "person" else _DEDUP_HARD
 
 
 class WriteResult:
@@ -80,7 +90,7 @@ async def write_entity(entity: Entity, session_id: str = "") -> WriteResult:
     candidates = await find_similar(
         entity.type, entity.canonical_name, entity.aliases, threshold=_DEDUP_SOFT
     )
-    if candidates and candidates[0].score >= _DEDUP_HARD:
+    if candidates and candidates[0].score >= _hard_threshold(entity.type):
         existing_path = candidates[0].path
         if existing_path != rel_path:
             logger.info(

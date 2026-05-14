@@ -895,6 +895,9 @@ class _StreamUI:
         self._ui_lang = ui_lang
         self._last_edit_at: float = 0.0
         self._last_text: str = ""
+        # When Telegram returns TelegramRetryAfter, we park edits until this
+        # monotonic timestamp passes. Prevents retry-storm amplifying flood.
+        self._blocked_until: float = 0.0
         self._labels = _TOOL_PROGRESS_LABELS.get(ui_lang, _TOOL_PROGRESS_LABELS["ru"])
 
     async def on_text(self, full_text: str) -> None:
@@ -905,7 +908,14 @@ class _StreamUI:
         now = time.monotonic()
         grew_by = len(full_text) - len(self._last_text)
         elapsed = now - self._last_edit_at
-        if elapsed < _STREAM_EDIT_MIN_INTERVAL_SEC and grew_by < _STREAM_EDIT_MIN_DELTA_CHARS:
+        # Telegram allows ~1 edit/sec per chat. We require BOTH: min interval
+        # has passed AND buffer grew enough to be worth an edit. Earlier this
+        # was `and` (skip only if both small) which let edits fire as soon as
+        # EITHER threshold was crossed — with fast token streaming that bursts
+        # to 2-3 edits/sec and triggers flood control. See feedback note.
+        if elapsed < _STREAM_EDIT_MIN_INTERVAL_SEC:
+            return
+        if grew_by < _STREAM_EDIT_MIN_DELTA_CHARS:
             return
         await self._edit(full_text)
 
@@ -930,14 +940,27 @@ class _StreamUI:
     async def _edit(self, text: str, *, force: bool = False) -> bool:
         import time
 
+        from aiogram.exceptions import TelegramRetryAfter
+
         from src.telegram.formatting import to_telegram_html
 
         truncated = text if len(text) < 4000 else text[:3950] + "…"
         if not force and truncated == self._last_text:
             return True
+        # While rate-limited by Telegram, drop edits silently. The finalize()
+        # call still tries (force=True) but if we're still blocked it will
+        # also return False and caller falls back to fresh send_message.
+        now = time.monotonic()
+        if now < self._blocked_until:
+            return False
         # Convert LLM-emitted Markdown to Telegram HTML — bot is created with
         # parse_mode=HTML, raw **bold** would render literally.
         rendered = to_telegram_html(truncated)
+        # Mark the attempt time BEFORE the call — even a failure consumes our
+        # 1/sec budget on Telegram's side; updating only on success caused a
+        # retry storm under flood control (every fresh 25-char delta hit API
+        # again, amplifying the original violation).
+        self._last_edit_at = now
         try:
             await self._bot.edit_message_text(  # type: ignore[attr-defined]
                 chat_id=self._chat_id,
@@ -945,15 +968,22 @@ class _StreamUI:
                 text=rendered,
             )
             self._last_text = truncated
-            self._last_edit_at = time.monotonic()
             return True
+        except TelegramRetryAfter as exc:
+            # Park further edits until Telegram clears us. Pad by 1s for jitter.
+            self._blocked_until = time.monotonic() + float(exc.retry_after) + 1.0
+            logger.info(
+                "stream edit rate-limited",
+                retry_after=exc.retry_after,
+                message_id=self._message_id,
+            )
+            return False
         except Exception as exc:
             msg = str(exc)
             # "message is not modified" — content identical to prior edit; benign.
             if "not modified" in msg.lower():
                 return True
-            # Rate limit / transient — next edit will catch up; not fatal.
-            # Promoted from debug → info while we diagnose streaming UX.
+            # Other transient — next edit will catch up; not fatal.
             logger.info("stream edit failed", error=msg[:200])
             return False
 
@@ -1356,12 +1386,29 @@ async def process_input(
 
     # Deliver the final reply. Streaming path edits the placeholder in place;
     # non-streaming path sends a fresh message via reply_fn.
+    # All sends are wrapped against TelegramRetryAfter: if the chat is in
+    # flood-control cooldown, we log and bail without crashing the update —
+    # the user keeps their placeholder (which now shows the last successful
+    # edit) and can re-ask once the cooldown clears.
+    from aiogram.exceptions import TelegramRetryAfter
+
+    async def _safe_send(text: str) -> None:
+        try:
+            await reply_fn(text)
+        except TelegramRetryAfter as exc:
+            logger.warning(
+                "reply rate-limited",
+                user_id=user_id,
+                session_id=session.session_id,
+                retry_after=exc.retry_after,
+            )
+
     if stream is not None:
         delivered = await stream.finalize(reply)
         if not delivered:
-            await reply_fn(reply)
+            await _safe_send(reply)
     elif not is_duplicate:
-        await reply_fn(reply)
+        await _safe_send(reply)
 
     logger.info("replied", user_id=user_id, session_id=session.session_id, kind=kind)
 
