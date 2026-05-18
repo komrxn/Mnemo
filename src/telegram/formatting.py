@@ -48,16 +48,29 @@ _BULLET_RE = re.compile(r"^([ \t]*)[\-*][ \t]+", re.MULTILINE)
 # Markdown link [text](url)
 _LINK_RE = re.compile(r"\[([^\]\n]+?)\]\(([^)\n\s]+?)\)")
 
+# Allowed Telegram HTML tags (https://core.telegram.org/bots/api#html-style).
+# Captured as a single group so re.split returns alternating [text, tag, ...]
+# chunks — we pass tags through verbatim and only apply escape+markdown to
+# the text chunks between them. This is what makes the converter truly
+# idempotent on locale strings like "Буду <b>{{ bot_name }}</b>!" — without
+# this guard, html.escape would mangle the existing `<b>` into `&lt;b&gt;`
+# and Telegram would render the tags literally.
+_ALLOWED_TAG_RE = re.compile(
+    r"(</?(?:b|strong|i|em|u|ins|s|strike|del|code|pre|blockquote|a|tg-spoiler|span)"
+    r"(?:\s+[^>]*)?>)",
+    re.IGNORECASE,
+)
+
 
 def _escape_text(s: str) -> str:
     """HTML-escape `<`, `>`, `&` so non-tag occurrences don't break the parser."""
     return html.escape(s, quote=False)
 
 
-def _convert_inline(segment: str) -> str:
-    """Convert all inline Markdown markers in a non-code segment to HTML.
+def _convert_text_chunk(s: str) -> str:
+    """Apply escape + Markdown→HTML to a chunk of plain text (no allowed tags).
 
-    Operates in this order to avoid cross-contamination:
+    Order avoids cross-contamination:
         1. Escape `<`/`>`/`&`
         2. Markdown links → <a>
         3. Bold (**...**)
@@ -67,22 +80,40 @@ def _convert_inline(segment: str) -> str:
         7. Bullets (-, *) → • prefix
         8. Inline code (`...`)
     """
-    s = _escape_text(segment)
-
-    # Links: [label](url) — label can contain converted spans, but for now
-    # we keep label literal text. URL is escaped already.
+    s = _escape_text(s)
     s = _LINK_RE.sub(lambda m: f'<a href="{m.group(2)}">{m.group(1)}</a>', s)
-
     s = _BOLD_RE.sub(lambda m: f"<b>{m.group(1)}</b>", s)
     s = _UNDERSCORE_ITALIC_RE.sub(lambda m: f"<i>{m.group(1)}</i>", s)
     s = _STRIKE_RE.sub(lambda m: f"<s>{m.group(1)}</s>", s)
     s = _HEADER_RE.sub(lambda m: f"<b>{m.group(1)}</b>", s)
     s = _BULLET_RE.sub(lambda m: f"{m.group(1)}• ", s)
-    # Inline code last — its content is escaped (we already escaped the whole
-    # segment), so just wrap.
     s = _INLINE_CODE_RE.sub(lambda m: f"<code>{m.group(1)}</code>", s)
-
     return s
+
+
+def _convert_inline(segment: str) -> str:
+    """Convert all inline Markdown markers in a non-code segment to HTML.
+
+    Splits the segment around allowed Telegram HTML tags so existing tags
+    (from YAML locales or LLM-emitted HTML) survive unchanged while the
+    plain-text regions in between still get escape + Markdown treatment.
+    """
+    # Fast path: no HTML tags at all → run the whole thing through conversion.
+    parts = _ALLOWED_TAG_RE.split(segment)
+    if len(parts) == 1:
+        return _convert_text_chunk(segment)
+
+    # re.split with one capture group yields alternating [text, tag, text, ...].
+    out: list[str] = []
+    for i, part in enumerate(parts):
+        if i % 2 == 1:
+            # Allowed HTML tag — pass through verbatim. Attribute values are
+            # the source's responsibility (locale files / LLM output); we
+            # don't try to validate or re-escape them here.
+            out.append(part)
+        elif part:
+            out.append(_convert_text_chunk(part))
+    return "".join(out)
 
 
 def _convert_code_block(language: str, body: str) -> str:

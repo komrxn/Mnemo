@@ -77,20 +77,45 @@ def test_html_special_chars_get_escaped() -> None:
 
 
 def test_existing_html_tags_pass_through() -> None:
-    """If the input already contains HTML (e.g. our locale strings), the
-    converter must not double-escape `<b>` into `&lt;b&gt;`.
-
-    Trade-off: the simple implementation here DOES escape angle brackets.
-    Locale strings are sent directly via aiogram, NOT through this converter
-    — they bypass it. This test pins the rule that the converter is for
-    LLM output only.
+    """Locale strings (and any LLM output that happens to use HTML directly)
+    must survive the converter unchanged. Earlier the converter escaped every
+    `<` indiscriminately, so a YAML string like `Буду <b>{{ bot_name }}</b>!`
+    turned into `Буду &lt;b&gt;…&lt;/b&gt;!` — and Telegram rendered the
+    literal tags as text. The converter is now idempotent on the allow-list
+    of Telegram HTML tags.
     """
-    # Document the current contract — locale strings are NOT routed through
-    # to_telegram_html. If this ever changes, this test will catch it.
-    out = to_telegram_html("<b>already HTML</b>")
-    # The converter sees `<` as text and escapes it, since LLM doesn't emit
-    # bare HTML. Locale strings bypass this function entirely.
-    assert "&lt;b&gt;" in out
+    assert to_telegram_html("<b>already HTML</b>") == "<b>already HTML</b>"
+
+
+def test_onboarding_locale_with_html_round_trip() -> None:
+    """Regression anchor for the user-visible bug observed 2026-05-18:
+    onboarding `ask_personality` reached the user with literal `<b>` text."""
+    src = (
+        "Буду <b>Johnny Silverhand</b>! Теперь выбери <b>стиль общения</b>:"
+    )
+    assert to_telegram_html(src) == src
+
+
+def test_html_with_attributes_passes_through() -> None:
+    """<a href="..."> should survive — the href is the source's responsibility."""
+    src = '<a href="https://example.com">link</a>'
+    assert to_telegram_html(src) == src
+
+
+def test_mixed_existing_html_and_markdown() -> None:
+    """An LLM reply that mixes pre-formatted HTML with raw markdown still
+    converts the markdown without mangling the HTML."""
+    md = "Hi <b>boss</b>, you said **really**?"
+    out = to_telegram_html(md)
+    assert "<b>boss</b>" in out
+    assert "<b>really</b>" in out
+    assert "&lt;" not in out
+
+
+def test_bare_lt_still_escaped_outside_tags() -> None:
+    """Stray `<` in plain text (no tag follows) must still be escaped — we
+    don't want users sending `3 < 5` to crash the Telegram HTML parser."""
+    assert to_telegram_html("3 < 5") == "3 &lt; 5"
 
 
 def test_code_block_preserved_verbatim() -> None:
