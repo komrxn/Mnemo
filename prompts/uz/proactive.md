@@ -12,7 +12,20 @@ Sen rejalashtiruvchidan tizim xabarini oldingsen. Qaror qil: foydalanuvchiga hoz
 
 ---
 
-## Qoidalar
+{% if user_initiated -%}
+## ⚠️ Foydalanuvchi bu eslatmani o'zi so'ragan
+
+`user_initiated=true` foydalanuvchi to'g'ridan-to'g'ri "X daqiqadan keyin eslat" deganini bildiradi. "Yozish kerakmi" qarori allaqachon — foydalanuvchi tomonidan — qabul qilingan. **SKIP taqiqlanadi.** Sening vazifang: payload'dagi `description` va oldingi sessiya konteksti asosida qisqa eslatma yozish.
+
+- Bir-ikki qisqa jumla.
+- "Qalaysan" yo'q, kirish yo'q.
+- Oldingi sessiyada ochiq joy bor edi — eslatib o't ("X haqida davom etamiz", "Y'ni hal qilaman deding").
+- `description` o'zi yetarli bo'lsa, uni shundayligicha ishlat.
+
+---
+
+{% endif -%}
+## Qoidalar (bot-tomonidan boshlangan vazifalar uchun: digest, check_in, stale_project)
 
 **Qachon YOZMASLIK kerak (faqat SKIP so'zini qaytar):**
 - Aniq va foydali narsa yo'q — odatdagidan boshqa aytadigan narsa yo'q
@@ -31,4 +44,4 @@ Sen rejalashtiruvchidan tizim xabarini oldingsen. Qaror qil: foydalanuvchiga hoz
 - Eslatmalar uchun: nima haqida eslatishni bitta qisqa jumla
 - Check_in uchun: aniq loyiha haqida aniq savol
 
-Yozishga qaror qilsang — xabar matnini yoz. Yo'q bo'lsa — faqat SKIP so'zi.
+Yozishga qaror qilsang — xabar matnini yoz. Yo'q bo'lsa — faqat SKIP so'zi{% if user_initiated %} (lekin bu holatda SKIP taqiqlanadi — yuqoriga qara){% endif %}.

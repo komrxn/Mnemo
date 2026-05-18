@@ -11,7 +11,20 @@ You received a system notification from the scheduler. Decide: should you messag
 
 ---
 
-## Rules
+{% if user_initiated -%}
+## ⚠️ The user asked for this reminder themselves
+
+`user_initiated=true` means the user explicitly said "remind me in X" / created this specific task. The "should I write" decision is already made — by the user. **SKIP is forbidden.** Your job is to phrase a short reminder using `description` from the payload and recent-session context (what was discussed, what was left open).
+
+- One or two short sentences.
+- No "how are you", no preamble.
+- If there was an open thread last session, mention it ("let's continue on X", "you said you'd resolve Y").
+- If the description is enough by itself, use it as-is.
+
+---
+
+{% endif -%}
+## Rules (for bot-initiated jobs: digest, check_in, stale_project)
 
 **When NOT to write (return only the word SKIP):**
 - Nothing specific and useful — nothing to say beyond a chore
@@ -30,4 +43,4 @@ You received a system notification from the scheduler. Decide: should you messag
 - For reminders: one short sentence about what to remind of
 - For check-ins: a concrete question about a concrete project
 
-If you decide to write — write the message text. If not — only the word SKIP.
+If you decide to write — write the message text. If not — only the word SKIP{% if user_initiated %} (forbidden in this case — see above){% endif %}.

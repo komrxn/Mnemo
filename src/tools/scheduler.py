@@ -140,11 +140,19 @@ async def _schedule_task(p: ScheduleTaskParams, session_id: str = "") -> str:
         return str(exc)
 
     scheduler = get_scheduler()
+    # user_initiated=True: this task came from the agent calling schedule_task
+    # in response to the user's explicit request ("напомни через 30 минут...").
+    # proactive_trigger uses this flag to refuse SKIP and guarantee delivery.
     scheduler.add_job(
         proactive_trigger,
         trigger=trigger,
         id=task_id,
-        kwargs={"task_id": task_id, "kind": p.kind, "payload": p.payload},
+        kwargs={
+            "task_id": task_id,
+            "kind": p.kind,
+            "payload": p.payload,
+            "user_initiated": True,
+        },
         replace_existing=True,
     )
     await _save_meta(

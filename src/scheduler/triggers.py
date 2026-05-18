@@ -11,8 +11,51 @@ logger = structlog.get_logger()
 _LAST_RUN_TTL = 30  # idempotency window in seconds
 
 
-async def proactive_trigger(task_id: str, kind: str, payload: dict) -> None:  # type: ignore[type-arg]
-    """Single entrypoint for all scheduled jobs. Calls LLM to decide whether to message user."""
+_USER_REMINDER_FALLBACK: dict[str, str] = {
+    "ru": "⏰ Напоминание: {description}",
+    "en": "⏰ Reminder: {description}",
+    "uz": "⏰ Eslatma: {description}",
+}
+
+
+def _fallback_user_reminder(payload: dict, ui_lang: str) -> str:  # type: ignore[type-arg]
+    """Last-resort reminder text when the LLM tried to SKIP a user-initiated task.
+
+    The user explicitly scheduled this — we must not silently drop it. Build a
+    deterministic short message from `payload.description` (which the agent
+    set when calling schedule_task with the user's own words).
+    """
+    template = _USER_REMINDER_FALLBACK.get(ui_lang, _USER_REMINDER_FALLBACK["ru"])
+    description = str(payload.get("description") or "").strip()
+    if not description:
+        # No description means the agent scheduled a malformed task — still
+        # better to nudge the user than swallow it.
+        description = {
+            "ru": "запланированная задача",
+            "en": "scheduled task",
+            "uz": "rejalashtirilgan vazifa",
+        }.get(ui_lang, "scheduled task")
+    return template.format(description=description)
+
+
+async def proactive_trigger(  # type: ignore[type-arg]
+    task_id: str,
+    kind: str,
+    payload: dict,
+    user_initiated: bool = False,
+) -> None:
+    """Single entrypoint for all scheduled jobs.
+
+    Two distinct paths:
+      - `user_initiated=False` (default): bot-side periodic jobs (morning
+        digest, stale-project check, etc.). LLM is allowed to return SKIP
+        when there's nothing useful to say.
+      - `user_initiated=True`: a one-shot reminder the user explicitly asked
+        for via the `schedule_task` tool ("напомни через 30 минут..."). The
+        user already decided this is worth sending — SKIP is forbidden, and
+        if the LLM tries it anyway we fall back to a deterministic localized
+        reminder built from the task description.
+    """
     from src.agent.loop import run_chat
     from src.session.manager import get_profile, get_redis
     from src.tools.registry import get_registry
@@ -29,7 +72,11 @@ async def proactive_trigger(task_id: str, kind: str, payload: dict) -> None:  # 
     user_id = settings.allowed_user_ids[0]
     profile = await get_profile(redis, user_id)
     recent_sessions = _load_recent_sessions()
-    task_context = f"kind={kind}\n{orjson.dumps(payload).decode()}"
+    task_context = (
+        f"kind={kind}\n"
+        f"user_initiated={user_initiated}\n"
+        f"{orjson.dumps(payload).decode()}"
+    )
 
     from src.session.manager import get_ui_language
 
@@ -41,6 +88,7 @@ async def proactive_trigger(task_id: str, kind: str, payload: dict) -> None:  # 
         task_context=task_context,
         user_profile=orjson.dumps(profile).decode() if profile else "{}",
         recent_sessions=recent_sessions,
+        user_initiated=user_initiated,
     )
 
     # Special case: system tasks like full reindex don't need LLM
@@ -61,17 +109,38 @@ async def proactive_trigger(task_id: str, kind: str, payload: dict) -> None:  # 
         reply = await run_chat(messages, registry.openai_specs(), dispatch, max_rounds=8)
     except Exception as exc:
         logger.error("proactive trigger failed", task_id=task_id, error=str(exc))
-        return
+        if user_initiated:
+            # Even on LLM failure, the user's explicit reminder must land.
+            reply = _fallback_user_reminder(payload, ui_lang)
+        else:
+            return
 
-    if not reply.strip() or reply.strip().upper() == "SKIP":
-        logger.info("proactive decided to skip", task_id=task_id)
-        return
+    stripped = reply.strip()
+    if not stripped or stripped.upper() == "SKIP":
+        if user_initiated:
+            # LLM tried to swallow a user-explicit task — refuse and fall
+            # back to a deterministic reminder. The prompt forbids SKIP in
+            # this case (belt), this code path is the suspenders.
+            logger.warning(
+                "proactive: LLM tried to skip a user-initiated task — forcing fallback",
+                task_id=task_id,
+                kind=kind,
+            )
+            reply = _fallback_user_reminder(payload, ui_lang)
+        else:
+            logger.info("proactive decided to skip", task_id=task_id)
+            return
 
     from src.telegram.bot import get_bot
 
     bot = get_bot()
     await bot.send_message(user_id, reply)
-    logger.info("proactive sent", task_id=task_id, kind=kind)
+    logger.info(
+        "proactive sent",
+        task_id=task_id,
+        kind=kind,
+        user_initiated=user_initiated,
+    )
 
 
 async def _handle_system_task(payload: dict) -> None:  # type: ignore[type-arg]
