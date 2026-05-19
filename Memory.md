@@ -498,6 +498,80 @@ git_ops.pull_with_diff
 - **Раньше:** `/start` после удаления `_meta/portrait.md` запустил бы заново и переписал бы профиль.
 - **Сейчас:** проверяется И owner.md И portrait.md. Если хотя бы один файл есть — отвечает «жив, удали оба для пере-онбординга».
 
+### Группа I — Streaming UI flood-control storm (May 2026)
+**Симптомы:** Бот словил `TelegramRetryAfter: Retry in 200+ seconds` на `EditMessageText`. Десятки failed-edit'ов подряд, потом крах update handler'а с трейсбэком на `SendMessage` тоже rate-limited. Юзер не получает ответ вообще.
+**Корень:** В `_StreamUI.on_text` ([telegram/handlers/text.py:908](src/telegram/handlers/text.py#L908)) гейт был `elapsed < 0.9s AND grew_by < 25 chars: skip`. Это означало — edit летит, когда **любое** из условий пройдено, не оба. При быстром стриминге gpt-5.4 grew_by пробивал 25 символов за ~0.3-0.5 сек → 2-3 edit/сек → выше Telegram-лимита 1/сек. И на 429 `_last_edit_at` не обновлялся → каждые новые 25 символов снова били API → шторм усиливал сам себя.
+**Решение:**
+1. Гейт переписан: ОБА условия должны быть выполнены (`elapsed ≥ 0.9s AND grew_by ≥ 25`).
+2. На `TelegramRetryAfter` парсим `retry_after`, ставим `_blocked_until` — последующие edit'ы молча возвращают False без обращения к API.
+3. `_last_edit_at` обновляется на **любую** попытку, не только успешную — failed-edit тоже потратил наш 1/сек бюджет.
+4. Финальный fallback `message.answer(reply)` обёрнут в `try/except TelegramRetryAfter` — если кулдаун ещё активен, логируем `reply rate-limited` и не крешим update.
+
+Тесты: `tests/test_stream_ui_ratelimit.py` — 6 кейсов на инварианты.
+
+### Группа J — Person dedup false-merge (May 2026)
+**Симптомы:** Мама-Лола и дочка-Хилола слились в одну заметку. В логах `wanted: 20_People/лола.md, existing: 20_People/хилола.md, score: 90, event: "write_pipeline dedup: routing to existing"`. После этого «Лола» становилась алиасом «Хилолы», все факты мамы прилетали в дочкину заметку, smart linker строил ложные связи.
+**Корень:** `fuzz.WRatio` для всех типов в `find_similar` ([vault/dedup.py](src/vault/dedup.py)). WRatio комбинирует `partial_ratio`, который даёт 100% за substring containment ("лола" ⊂ "хилола"). Score=90 пробивал HARD-порог 85 → авто-мердж без шанса на отказ. Тот же класс бага: «Джамолиддин» vs «Джамол» = WRatio 90.
+**Решение:**
+1. Для типа `person` теперь `fuzz.ratio` (чистый Левенштейн, без partial substring biass) вместо WRatio.
+2. HARD-порог для person поднят до 92 (с 85 для остальных типов).
+3. Эмпирически: «Лола»↔«Хилола» теперь 80 → ниже 92 → дальше soft warning, авто-мерджа нет. Эквивалентные имена (`Hilola`=`Hilola`=100) по-прежнему мерджатся.
+4. Для themes/jobs/thoughts оставлен WRatio+85 — консолидация близких тем там полезна.
+
+Тесты: `tests/test_dedup.py` — 4 новых кейса (Лола≠Хилола substring, Джамолиддин≠Джамол prefix, Hilola=Hilola exact, themes still merge aggressively).
+
+### Группа K — User-initiated reminders skipped by LLM (May 2026)
+**Симптомы:** Юзер сказал «напомни через 30 минут продолжить echelon». Агент вызвал `schedule_task`, scheduler сработал в нужное время — но бот юзеру ничего не написал. В логах: `proactive_trigger ... 2026-05-18 19:03:57 → event: "proactive decided to skip"`. Дважды подряд один и тот же ответ.
+**Корень:** `proactive_trigger` ([scheduler/triggers.py](src/scheduler/triggers.py)) — единая точка для всех расписаний: и бот-инициированных кронов (утренний дайджест, weekly_reflection, stale_project), и one-shot напоминаний от юзера. LLM-decider судил всех по одним правилам и для user-initiated тоже мог вернуть SKIP. Решение «писать или нет» отнималось у юзера, который уже это решение принял.
+**Решение:** Архитектурное разделение через флаг `user_initiated: bool`:
+1. `_schedule_task` (тул, который зовёт агент по просьбе юзера) выставляет `user_initiated=True`.
+2. `defaults.py` (бот-кроны: digest/reflection/check_in) оставляет default `False`.
+3. В `proactive_trigger`: если `user_initiated=True` И LLM вернул SKIP/empty/exception → fallback на детерминированное напоминание `_fallback_user_reminder(payload, ui_lang)` локализованное «⏰ Напоминание: {description}». Belt-and-suspenders: и в промпт `proactive.md` добавлена жёсткая строка «user_initiated=true → SKIP запрещён».
+4. Для бот-инициированных задач LLM-failure → молчим, не спамим юзера.
+
+Тесты: `tests/test_proactive_user_initiated.py` — 8 кейсов (fallback в ru/en/empty, SKIP refused user-initiated, happy passthrough, LLM-failure user-initiated still delivers, LLM-failure bot-initiated silent).
+
+### Группа L — Topic-bleed: контент в неподходящей заметке (May 2026)
+**Симптомы:** Заметка `Бакалавриат в финансовом` через день получила факты про `форель` (рыбоводный бизнес юзера). После этого LightRAG/smart-linker увидел оба термина в одном теле и создал ложную графовую связь между бакалавриатом и форельным бизнесом.
+**Корень (3-слойный, найден через Explore agent):**
+1. `src/tools/obsidian.py` `_append_to_note` — **ноль topic-coherence проверок**. Агент решил «допишу про форель в бакалавриат», тул это разрешил молча.
+2. `src/agent/extractor.py` session-end pipeline — `_apply_entity` для thoughts/memories тоже молча append'ит в существующую заметку если `note_exists`.
+3. `src/vault/write_pipeline.py` после dedup-reroute — добавляет факты в смерджённую заметку + поднимает оригинальное имя в `aliases` (alias-poisoning).
+
+**Решение:** Новый модуль `src/vault/coherence.py` с двухстадийным gate:
+1. **Stage 1 — fuzzy (всегда, ~0мс):** `partial_ratio` блока против title/aliases (заголовок как substring в блоке) + `max(partial, token_set)` против первых ~100 слов body. Решительно на крайностях: ≥75 → ok, <40 → mismatch.
+2. **Stage 2 — LLM fallback (только на borderline 40-75, ~400мс):** gpt-5.4-mini YES/NO с body excerpt. Ловит семантическое сходство которое fuzzy не видит («новый поставщик мяса» в `bek-restaurant.md` — body содержит «поставщики/кухня», title нет).
+3. **Safe degradation:** на ошибке чтения / LLM-краше → `unsure` (caller трактует как permissive — отказ от легитимной записи из-за I/O-сбоя хуже bleed-риска).
+
+**Wired в 3 точки:**
+- `_append_to_note` тул: `mismatch` → возвращает агенту error string «⛔ блок не по теме заметки X. Создай новую через `create_note`» — агент решает retry.
+- extractor thoughts/memories: `mismatch` → создаёт sibling-заметку через `make_unique_note_path` (бакалавриат.md существует → бакалавриат-2.md), не append'ит.
+- write_pipeline после dedup-reroute: то же — sibling вместо poisoning.
+
+**Prompt-level belt:** `prompts/{ru,en,uz}/system.md` добавлен блок «Дисциплина записи: перед каждым append проверь что блок по той же теме что и заметка». `prompts/ru/session_extract.md` rule 8: «new_facts должны быть про сущность из `name`».
+
+Тесты: `tests/test_coherence_gate.py` (10), `tests/test_append_gate_integration.py` (3), `tests/test_extractor_bleed_regression.py` (2 + bleed-сценарий из прода). Также `make_unique_note_path` хелпер в `src/vault/frontmatter.py`.
+
+### Группа M — Conversation balance: бот слишком философствовал (May 2026)
+**Симптомы:** Бот копал одну тему уточняющими вопросами пока юзер сам не переключал. Уходил в философию даже когда юзер в режиме capture (просто записать факт). Юзер тратил много времени на одну заметку. Бот игнорировал короткие ответы как стоп-сигнал — продолжал расспрашивать.
+**Корень (в `prompts/ru/system.md`):**
+- Идентичность строка 1: «не помощник, а **напарник по мышлению**» → бот понимал работу как «мыслить вместе».
+- Строка 12: «Размышления → **включаешься: задаёшь встречные вопросы, провоцируешь**» — без soft-cap, без exit-сигнала.
+- Строка 14: «Имеешь право на свою позицию... аргументируешь» — без условия; бот спорил даже в pure capture-репликах.
+- Не было правила «один вопрос за реплику», soft-cap «2-3 follow-up'а на одну нить», «короткий ответ = тема закрыта».
+
+**Решение** (на основе индустри-исследования: Pi.ai, Mindsera, Mem.ai, Stanford MI/Bloom, Replika-anti-pattern). Rewrite `prompts/{ru,en,uz}/system.md`:
+1. **Идентичность:** «**умный AI-дневник**, который умеет копать когда надо и помнить». Thinking-partner — вторично, только по сигналу.
+2. **Два режима:** Capture (default) — минимум слов, прими и сохрани, 0-1 вопрос за реплику. Explore (по сигналам: ≥30 слов от юзера, эмоциональный регистр, открытый вопрос от юзера, прямое «помоги подумать»).
+3. **Глубина:** один вопрос за реплику (hard), soft-cap 2-3 follow-up'а на нить → потом summarize+branch, mirror-before-probe в explore, намеренный skip-question каждые 2-3 хода (Pi.ai pattern).
+4. **Stop-signals:** короткий ответ (≤5 слов / «ок»/«да»/«угу»/«не знаю»/«понял») = тема закрыта. Не задавай больше вопросов по этой нити, либо acknowledge+stop, либо pivot на другую открытую нить.
+5. **Topic-shift wins:** юзер ввёл новую сущность → новая тема побеждает. Закрой старую одной строкой, иди за юзером, не тащи обратно.
+6. **Personality = ТОН, не правила.** Стиль управляет КАК говорить (теплее/жёстче/иронично), не отменяет capture-default, one-question, soft-cap, exit-signals.
+
+Также:
+- `topic_shift.md` ослаблен — `shift=true` и при средней смене (новая сущность), не только при явной. Бот быстрее идёт за юзером.
+- `onboarding.md` — добавлен batch-чек-лист (Mem.ai pattern): для 3+ структурных фактов про одну сущность одна реплика с чек-листом, а не серия вопросов. Плюс exit-сигнал «короткий ответ → следующий слот».
+
 ---
 
 ## 7. Текущий статус
@@ -511,9 +585,9 @@ docker compose ps:
 ```
 
 ### Tests
-- **178/178 pytest** ✅ (v6 + UX hardening доехали)
+- **281/281 pytest** ✅ (v6 + UX hardening + groups I-M доехали)
 - **ruff clean** ✅
-- **mypy 6 errors** — legacy v1/v2 baseline (`session/manager.py:157,162` redis типы, `lightrag_svc/indexer.py` `# type: ignore` unused, extractor unused-ignore). v5+v6 не вносят новых.
+- **mypy 6 errors** — legacy v1/v2 baseline (`session/manager.py:157,162` redis типы, `lightrag_svc/indexer.py` `# type: ignore` unused, extractor unused-ignore). Новые группы багов не внесли регрешнов.
 
 ### PyPI
 - `mnemo-brain-mcp` v0.1.0 опубликован: https://pypi.org/project/mnemo-brain-mcp/
@@ -526,20 +600,26 @@ docker compose ps:
 - `feedback_models.md` — никаких gpt-4o/4-turbo, только gpt-5.4
 - `feedback_obsidian_graph_ux.md` — после изменений всегда проверять как граф выглядит в Obsidian глазами юзера
 - `feedback_skeptical_user_function_audit.md` — «аудит» = проверка каждой user-функции против кода, не README
-- `feedback_memory_over_speed.md` ⭐ NEW — НЕ таймаутить recall / transcripts / extraction; скорость через streaming UI, не через skip полноты
+- `feedback_memory_over_speed.md` — НЕ таймаутить recall / transcripts / extraction; скорость через streaming UI, не через skip полноты
+- `feedback_product_grade.md` — каждая фича = продукт, не PoC; думать про edge-cases, UX, backward-compat
+- `feedback_docker_full_stack.md` — после `compose down` использовать `docker compose up -d --build` БЕЗ имени сервиса; иначе lightrag-api / redis могут не подняться и юзер тихо лишится auto-recall + MCP
 
 ### Repository state
 - main branch
 - Последние коммиты:
   ```
-  37becd0 copy: bot speaks like a second brain, not a tool
-  251d45c fix(telegram): render LLM markdown as HTML for bot's HTML parse mode
-  724fec8 v5+v6: i18n (ru/en/uz) + memory layers + read-before-ask guard
-  d8efe56 fix(git_ops): bypass dubious-ownership check via per-invocation safe.directory env
-  e09fcd0 v4: senior refactor — strict Entity contract, vault language, genre rules
+  8084b05 feat(prompts+coherence): capture-first balance + topic-bleed gate
+  da5e541 fix(scheduler): user-initiated reminders bypass the SKIP path
+  f5bbfd5 fix(formatting): preserve existing HTML tags in to_telegram_html
+  049b50e fix(stream+dedup): two memory-critical bugs
+  09188ef chore(settings): bump personality length limits
+  9cf1611 feat(settings): personality synth + add-rule with anti-otsebyatina preview
+  6732695 copy(kb): user-friendly confirmation prompts, mention undo on save
+  783fe0b feat(kb): Yes/No confirmation for destructive Save and Undo buttons
+  aec856d feat(kb): persistent reply-keyboard with localized command buttons
+  0dc1bb8 feat(settings): single-message /settings menu — name, style, languages
   ```
-- Все v5+v6+UX hardening изменения **закоммичены**. `git status` чистый.
-- Origin/main отстаёт — пуш не делался, ждёт решения юзера.
+- Все изменения групп I-M **закоммичены и запушены** в `origin/main`.
 
 ---
 
