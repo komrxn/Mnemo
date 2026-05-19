@@ -144,3 +144,28 @@ def make_note_path(type_: str, title: str) -> str:
         return f"{folder}/{date}.md"
     slug = slugify(title, allow_unicode=True, separator="-", lowercase=True)
     return f"{folder}/{slug}.md"
+
+
+def make_unique_note_path(type_: str, title: str) -> str:
+    """Like `make_note_path` but guarantees the result doesn't exist yet.
+
+    Used when the coherence gate refuses an append: instead of bleeding
+    facts into the dedup-matched existing note, we need a fresh sibling
+    note. Appends `-2`, `-3`, ... until the path is free.
+    """
+    from pathlib import Path
+
+    from src.config import settings
+
+    base = make_note_path(type_, title)
+    vault = Path(settings.vault_path)
+    if not (vault / base).exists():
+        return base
+    stem = base.removesuffix(".md")
+    for n in range(2, 100):
+        candidate = f"{stem}-{n}.md"
+        if not (vault / candidate).exists():
+            return candidate
+    # Pathological collision — fall through to the suffixed candidate even
+    # if it would overwrite; better than an infinite loop.
+    return f"{stem}-{n}.md"

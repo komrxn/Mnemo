@@ -128,12 +128,36 @@ async def write_entity(entity: Entity, session_id: str = "") -> WriteResult:
 
     # Step 4 — write or append
     if reader.note_exists(rel_path):
-        # Existing note — append body and merge frontmatter
+        # Topic-coherence gate (only matters on dedup-routed appends — see
+        # bleed bug: "Лола" routed to "Хилола" via fuzzy then merged facts).
+        # If dedup picked a note that doesn't fit, fall back to a fresh
+        # sibling path instead of poisoning the existing note + its aliases.
         if entity.facts:
-            await writer.append_to_note(rel_path, _facts_block(entity, notes_lang), session_id)
-        await writer.update_frontmatter(rel_path, fm, session_id)
-        action = "appended"
-        sha = "0" * 8  # update returns sha; we re-fetch after
+            facts_text = _facts_block(entity, notes_lang)
+            from src.vault.coherence import is_block_coherent_with_note
+
+            verdict = await is_block_coherent_with_note(facts_text, rel_path)
+            if verdict == "mismatch":
+                from src.vault.frontmatter import make_unique_note_path
+
+                logger.warning(
+                    "write_pipeline: dedup-routed append off-topic — "
+                    "creating sibling instead",
+                    routed_to=rel_path,
+                    entity_name=entity.canonical_name,
+                )
+                rel_path = make_unique_note_path(entity.type, entity.canonical_name)
+                sha = await writer.write_note(rel_path, body, fm, session_id)
+                action = "created"
+            else:
+                await writer.append_to_note(rel_path, facts_text, session_id)
+                await writer.update_frontmatter(rel_path, fm, session_id)
+                action = "appended"
+                sha = "0" * 8  # update returns sha; we re-fetch after
+        else:
+            await writer.update_frontmatter(rel_path, fm, session_id)
+            action = "appended"
+            sha = "0" * 8
     else:
         sha = await writer.write_note(rel_path, body, fm, session_id)
         action = "created"

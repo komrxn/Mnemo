@@ -98,7 +98,9 @@ Example entity:
 
 7. **Don't make things up.** Include only what's explicitly said or directly follows from the dialog.
 
-8. **Quality of new_facts — specifics, not filler.** Each fact is a separate substantive unit. DO NOT write generic placeholders like "Komron's work project", "Important person", "Context related to X". This is embarrassing. If an entity has no concrete facts from the dialog — leave `new_facts: []` or mark it for follow-up in `open_questions`.
+8. **new_facts must be about the entity in `name`.** If facts about a different entity appear in the dialog — **create a separate entity** for them. Don't put trout-farming facts on a "bachelor's degree" entity. Don't put project-LegAI facts on the "Anna" entity (for Anna — use `works_at`; LegAI facts go on a separate project entity). Cross-contamination is the #1 cause of a polluted graph.
+
+9. **Quality of new_facts — specifics, not filler.** Each fact is a separate substantive unit. DO NOT write generic placeholders like "Komron's work project", "Important person", "Context related to X". This is embarrassing. If an entity has no concrete facts from the dialog — leave `new_facts: []` or mark it for follow-up in `open_questions`.
 
 # If the session is empty or technical
 Return empty arrays `entities: []`, `thoughts: []`, etc.

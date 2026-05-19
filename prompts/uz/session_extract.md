@@ -99,7 +99,9 @@ Entity misoli:
 
 7. **O'ylab topma.** Faqat aniq aytilgan yoki muloqotdan to'g'ridan-to'g'ri kelib chiqadiganini kirit.
 
-8. **new_facts sifati — aniqlik, bo'sh narsa emas.** Har bir fakt — alohida mazmunli birlik. "Komron ish loyihasi", "Muhim odam", "X bilan bog'liq kontekst" kabi umumiy nikoblar YOZMA. Bu sharmandalik. Agar entity bo'yicha muloqotda aniq faktlar bo'lmasa — `new_facts: []` qoldir yoki entity'ni `open_questions`'da follow-up uchun belgila.
+8. **new_facts `name`'dagi sub'ekt haqida bo'lishi kerak.** Muloqotda boshqa sub'ekt haqida faktlar topilsa — ular uchun **alohida entity yarat**. "Bakalavriat" entity'siga forel haqidagi faktlarni qo'yma. "Anya" entity'siga LegAI loyihasi haqidagi faktlarni qo'yma (Anya uchun — `works_at`; LegAI faktlari alohida project-entity'ga). O'zaro ifloslanish — buzilgan grafning asosiy sababi.
+
+9. **new_facts sifati — aniqlik, bo'sh narsa emas.** Har bir fakt — alohida mazmunli birlik. "Komron ish loyihasi", "Muhim odam", "X bilan bog'liq kontekst" kabi umumiy nikoblar YOZMA. Bu sharmandalik. Agar entity bo'yicha muloqotda aniq faktlar bo'lmasa — `new_facts: []` qoldir yoki entity'ni `open_questions`'da follow-up uchun belgila.
 
 # Sessiya bo'sh yoki texnik bo'lsa
 Bo'sh massivlar qaytar `entities: []`, `thoughts: []`, etc.

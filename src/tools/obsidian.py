@@ -345,6 +345,22 @@ async def _enqueue_index(paths: list[str]) -> None:
 async def _append_to_note(p: AppendToNoteParams, session_id: str = "") -> str:
     if not reader.note_exists(p.path):
         return f"заметка {p.path!r} не найдена"
+    # Topic-coherence gate: refuse if block is clearly off-topic for this
+    # note. Prevents the "форель facts dumped into бакалавриат note" bleed.
+    from src.vault.coherence import is_block_coherent_with_note
+
+    verdict = await is_block_coherent_with_note(p.block, p.path)
+    if verdict == "mismatch":
+        title = p.path.rsplit("/", 1)[-1].removesuffix(".md").replace("-", " ")
+        logger.info(
+            "append refused: off-topic",
+            path=p.path,
+            session_id=session_id,
+        )
+        return (
+            f"⛔ блок не по теме заметки '{title}'. "
+            f"Создай новую заметку через create_note или выбери подходящий path."
+        )
     sha = await writer.append_to_note(p.path, p.block, session_id)
     await _enqueue_index([p.path])
     return f"дописано: {p.path} (sha={sha[:8]})"

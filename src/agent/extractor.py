@@ -325,20 +325,51 @@ async def apply_to_vault(extraction: SessionExtraction, session_id: str) -> list
         if path:  # _apply_entity returns "" on validation failure — skip
             created.append(path)
 
-    # Standalone thoughts
+    # Standalone thoughts. On dedup-routed append we run the topic-coherence
+    # gate — if the LLM extractor proposed a path that doesn't fit the body,
+    # we create a sibling note instead of bleeding facts into the wrong one.
+    # The extractor has no agent retry loop, so on mismatch we make the
+    # deterministic safe choice (create fresh) rather than refusing entirely.
+    from src.vault.coherence import is_block_coherent_with_note
+    from src.vault.frontmatter import make_unique_note_path
+
     for thought in extraction.thoughts:
         rel_path = make_note_path("thought", thought.title)
         if reader.note_exists(rel_path):
-            await writer.append_to_note(rel_path, thought.body, session_id)
+            verdict = await is_block_coherent_with_note(thought.body, rel_path)
+            if verdict == "mismatch":
+                logger.warning(
+                    "extractor: thought body off-topic for existing note, creating sibling",
+                    wanted=rel_path,
+                    title=thought.title,
+                )
+                rel_path = make_unique_note_path("thought", thought.title)
+                await writer.write_note(
+                    rel_path, thought.body, {"type": "thought"}, session_id
+                )
+            else:
+                await writer.append_to_note(rel_path, thought.body, session_id)
         else:
             await writer.write_note(rel_path, thought.body, {"type": "thought"}, session_id)
         created.append(rel_path)
 
-    # Standalone memories
+    # Standalone memories — same coherence gate as thoughts.
     for memory in extraction.memories:
         rel_path = make_note_path("memory", memory.title)
         if reader.note_exists(rel_path):
-            await writer.append_to_note(rel_path, memory.body, session_id)
+            verdict = await is_block_coherent_with_note(memory.body, rel_path)
+            if verdict == "mismatch":
+                logger.warning(
+                    "extractor: memory body off-topic for existing note, creating sibling",
+                    wanted=rel_path,
+                    title=memory.title,
+                )
+                rel_path = make_unique_note_path("memory", memory.title)
+                await writer.write_note(
+                    rel_path, memory.body, {"type": "memory"}, session_id
+                )
+            else:
+                await writer.append_to_note(rel_path, memory.body, session_id)
         else:
             await writer.write_note(rel_path, memory.body, {"type": "memory"}, session_id)
         created.append(rel_path)
