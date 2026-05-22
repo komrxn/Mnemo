@@ -171,15 +171,41 @@ async def _schedule_task(p: ScheduleTaskParams, session_id: str = "") -> str:
 
 
 async def _list_tasks(p: ListTasksParams, session_id: str = "") -> str:
-    from src.scheduler.apsched import get_scheduler
+    """Return user-scheduled reminders only.
 
-    jobs = get_scheduler().get_jobs()
-    if not jobs:
-        return "нет запланированных задач"
+    `scheduler.get_jobs()` would also include bot-internal cron jobs (morning
+    digest, weekly reflection, vault sync, full-reindex, etc.) bootstrapped
+    in `src/scheduler/defaults.py`. Those are internal — leaking them to the
+    user as if they were their own tasks (production bug 2026-05-22: bot
+    listed "sync vault", "weekly reflection", "stale-project check" when the
+    user asked "what's hanging").
+
+    User-initiated tasks (created via `_schedule_task`) are the only ones
+    that get a row in `_TASK_META_KEY`, so iterating that hash gives us the
+    right set automatically. We also enrich with the live `next_run_time`
+    from the scheduler — meta might be slightly stale.
+    """
+    from src.scheduler.apsched import get_scheduler
+    from src.session.manager import get_redis
+
+    redis = await get_redis()
+    all_meta_raw = await redis.hgetall(_TASK_META_KEY)
+    if not all_meta_raw:
+        return "нет запланированных напоминаний"
+
+    scheduler = get_scheduler()
     lines = []
-    for job in jobs:
-        next_run = str(job.next_run_time) if job.next_run_time else "нет"
-        lines.append(f"- {job.id}: следующий запуск {next_run}")
+    for raw_key, raw_val in all_meta_raw.items():
+        tid = raw_key.decode() if isinstance(raw_key, bytes) else raw_key
+        meta: dict[str, Any] = orjson.loads(raw_val)
+        description = meta.get("description", "—")
+        # Prefer live next-run from scheduler; fall back to stored `when`.
+        job = scheduler.get_job(tid)
+        if job is not None and job.next_run_time:
+            when_str = str(job.next_run_time)
+        else:
+            when_str = meta.get("when", "—")
+        lines.append(f"- {description} — {when_str}")
     return "\n".join(lines)
 
 
@@ -237,7 +263,10 @@ def _register() -> None:
         ),
         (
             "list_tasks",
-            "Список всех запланированных задач с временем следующего запуска",
+            "Список напоминаний которые юзер сам поставил через тебя "
+            "(когда говорил 'напомни в X', 'поставь задачу Y'). "
+            "Бот-внутренние крон-джобы (дайджесты, синки vault, переиндексация) "
+            "сюда НЕ входят — это твои инструкции, не задачи юзера.",
             ListTasksParams,
             _list_tasks,
         ),
