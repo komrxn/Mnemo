@@ -30,25 +30,43 @@ def confirm_keyboard(correlation_id: str, ui_lang: str = "ru") -> InlineKeyboard
 
 
 # Keys whose values are the labels rendered on the reply-keyboard buttons.
-# Order is rendering order (2x2 grid: save+settings, undo+start_over).
-MAIN_KB_LABEL_KEYS: tuple[str, ...] = ("kb.save", "kb.settings", "kb.undo", "kb.start")
+# Order is rendering order. Probe-toggle labels are both included so
+# `match_main_kb_button` recognizes whichever the user actually sees right
+# now (state may have flipped since the keyboard was last sent).
+PROBE_ON_LABEL_KEY = "kb.probe_on"
+PROBE_OFF_LABEL_KEY = "kb.probe_off"
+MAIN_KB_LABEL_KEYS: tuple[str, ...] = (
+    "kb.save",
+    "kb.settings",
+    "kb.undo",
+    "kb.start",
+    PROBE_ON_LABEL_KEY,
+    PROBE_OFF_LABEL_KEY,
+)
 
 
-def main_reply_keyboard(ui_lang: str) -> ReplyKeyboardMarkup:
+def main_reply_keyboard(ui_lang: str, probe_on: bool) -> ReplyKeyboardMarkup:
     """Persistent reply-keyboard with all bot commands as friendly labels.
 
     Rendered below the input field, always visible (`is_persistent=True`,
     `resize_keyboard=True`). Tapping a button sends its localized label as
     plain text — `handle_text` routes that text to the matching command
-    handler via `try_route_main_kb_button`.
+    handler via `match_main_kb_button`.
 
-    Layout: 2x2 grid. Save + Settings on top (frequent), Undo + Start over
-    on bottom (rare). Single source of layout truth.
+    Layout: 3+2 grid. Top row holds the most-frequent actions including
+    the probe-mode toggle (label depends on current state). Bottom row is
+    for rare actions.
+
+    The toggle label is dynamic: when `probe_on=True` it shows "🧠 Копаем"
+    (tapping it switches OFF), when `probe_on=False` it shows
+    "📝 Записываем" (tapping switches ON). Single source of layout truth.
     """
+    probe_label_key = PROBE_ON_LABEL_KEY if probe_on else PROBE_OFF_LABEL_KEY
     return ReplyKeyboardMarkup(
         keyboard=[
             [
                 KeyboardButton(text=t("kb.save", ui_lang)),
+                KeyboardButton(text=t(probe_label_key, ui_lang)),
                 KeyboardButton(text=t("kb.settings", ui_lang)),
             ],
             [
@@ -100,6 +118,11 @@ def match_main_kb_button(text: str) -> str | None:
     UI language without the client immediately re-rendering the keyboard —
     so a label they tap can be from the prior locale. `t()` caches yaml
     loads so the per-call cost is negligible.
+
+    Both probe-toggle labels (`probe_on` and `probe_off`) collapse to the
+    synthetic command name `"toggle_probe"` — the handler then reads current
+    state from the user's profile and flips it. This avoids two parallel
+    handler entries for what is conceptually one button.
     """
     if not text:
         return None
@@ -108,5 +131,7 @@ def match_main_kb_button(text: str) -> str | None:
         ll: Language = lang
         for key in MAIN_KB_LABEL_KEYS:
             if t(key, ll).strip() == needle:
+                if key in (PROBE_ON_LABEL_KEY, PROBE_OFF_LABEL_KEY):
+                    return "toggle_probe"
                 return key.split(".", 1)[1]
     return None

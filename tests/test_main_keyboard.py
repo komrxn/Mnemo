@@ -23,28 +23,54 @@ from src.telegram.keyboards import (
 
 
 @pytest.mark.parametrize("ui_lang", ["ru", "en", "uz"])
-def test_main_keyboard_has_2x2_layout(ui_lang: str) -> None:
-    kb = main_reply_keyboard(ui_lang)
-    assert len(kb.keyboard) == 2  # two rows
-    assert all(len(row) == 2 for row in kb.keyboard)  # two buttons per row
+@pytest.mark.parametrize("probe_on", [True, False])
+def test_main_keyboard_has_3_plus_2_layout(ui_lang: str, probe_on: bool) -> None:
+    """3 buttons on top row (save + probe-toggle + settings), 2 on bottom
+    (undo + start). The probe-toggle takes the middle-top slot regardless
+    of its current state — only the label changes."""
+    kb = main_reply_keyboard(ui_lang, probe_on)
+    assert len(kb.keyboard) == 2
+    assert len(kb.keyboard[0]) == 3
+    assert len(kb.keyboard[1]) == 2
 
 
 @pytest.mark.parametrize("ui_lang", ["ru", "en", "uz"])
 def test_main_keyboard_is_resizable_and_persistent(ui_lang: str) -> None:
-    kb = main_reply_keyboard(ui_lang)
+    kb = main_reply_keyboard(ui_lang, probe_on=True)
     assert kb.resize_keyboard is True
     assert kb.is_persistent is True
 
 
 @pytest.mark.parametrize("ui_lang", ["ru", "en", "uz"])
-def test_main_keyboard_buttons_have_localized_labels(ui_lang: str) -> None:
+@pytest.mark.parametrize("probe_on", [True, False])
+def test_main_keyboard_buttons_have_localized_labels(
+    ui_lang: str, probe_on: bool
+) -> None:
     """Every button label must be a non-empty string (not a missing-key
     fallback like `kb.save` showing through)."""
-    kb = main_reply_keyboard(ui_lang)
+    kb = main_reply_keyboard(ui_lang, probe_on)
     for row in kb.keyboard:
         for btn in row:
             assert btn.text
             assert not btn.text.startswith("kb.")  # i18n didn't fall through
+
+
+@pytest.mark.parametrize("ui_lang", ["ru", "en", "uz"])
+def test_main_keyboard_probe_label_reflects_state(ui_lang: str) -> None:
+    """When probe is ON, the toggle shows 'probe_on' label (tap → switch OFF).
+    When OFF, shows 'probe_off' label (tap → switch ON)."""
+    from src.i18n import t
+
+    kb_on = main_reply_keyboard(ui_lang, probe_on=True)
+    kb_off = main_reply_keyboard(ui_lang, probe_on=False)
+
+    labels_on = [btn.text for row in kb_on.keyboard for btn in row]
+    labels_off = [btn.text for row in kb_off.keyboard for btn in row]
+
+    assert t("kb.probe_on", ui_lang) in labels_on
+    assert t("kb.probe_off", ui_lang) not in labels_on
+    assert t("kb.probe_off", ui_lang) in labels_off
+    assert t("kb.probe_on", ui_lang) not in labels_off
 
 
 # ── label → command routing ───────────────────────────────────────────────────
@@ -93,15 +119,22 @@ def test_match_main_kb_button_returns_none_for_non_buttons(text: str) -> None:
 
 def test_every_main_kb_label_resolves_to_its_command() -> None:
     """Round-trip: build keyboard for each language, every button's text
-    must resolve back to a command name matching the i18n key."""
+    must resolve back to a command name. Probe-toggle labels are a special
+    case: both states collapse to the synthetic command 'toggle_probe'."""
     from src.i18n import t
+
+    from src.telegram.keyboards import PROBE_OFF_LABEL_KEY, PROBE_ON_LABEL_KEY
 
     for lang in ("ru", "en", "uz"):
         for key in MAIN_KB_LABEL_KEYS:
             label = t(key, lang)
-            command = key.split(".", 1)[1]
-            assert match_main_kb_button(label) == command, (
-                f"{lang}/{key} → {label!r} did not resolve to {command!r}"
+            expected = (
+                "toggle_probe"
+                if key in (PROBE_ON_LABEL_KEY, PROBE_OFF_LABEL_KEY)
+                else key.split(".", 1)[1]
+            )
+            assert match_main_kb_button(label) == expected, (
+                f"{lang}/{key} → {label!r} did not resolve to {expected!r}"
             )
 
 

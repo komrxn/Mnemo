@@ -229,6 +229,10 @@ kb:
   settings: ⚙️ Settings
   undo: ⚠️ Undo
   start: 🆕 Start over
+  probe_on: 🧠 Probing
+  probe_off: 📝 Just capture
+  probe_enabled_toast: '🧠 Probing on — I''ll ask leading questions to open up the topic.'
+  probe_disabled_toast: '📝 Okay, just capturing. If you want to discuss something — tap "🧠 Probing" or just ask.'
   placeholder: 'Tell me something…'
   activated: '✨ Ready. Commands are below 👇'
   confirm_save: |-

@@ -62,7 +62,7 @@ async def cmd_start(message: Message) -> None:
 
         await message.answer(
             t("start.already_onboarded", lang),
-            reply_markup=main_reply_keyboard(lang),
+            reply_markup=main_reply_keyboard(lang, session_mgr.get_probe_mode(profile)),
         )
         return
 

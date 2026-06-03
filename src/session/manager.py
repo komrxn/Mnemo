@@ -194,11 +194,14 @@ async def update_profile(redis: Redis, user_id: int, patch: dict[str, object]) -
 
 
 def _apply_language_migration(profile: dict[str, object]) -> None:
-    """Backfill ui_language and notes_language for profiles created before i18n.
+    """Backfill defaults for profiles created before later features shipped.
 
     - ui_language: default "ru" for existing users (per IMPLEMENTATION_PLAN_V5 §4.2)
     - notes_language: derive from legacy `vault_language` (ru/en/mixed). "mixed"
       collapses to "ru" since v5 dropped the mixed option in favor of explicit choice.
+    - probe_mode: default "on" — bot probes by default. Pre-existing users were
+      effectively in "on" mode (no toggle existed), so the migration keeps
+      behavior continuous for them.
     """
     if "ui_language" not in profile:
         profile["ui_language"] = "ru"
@@ -208,6 +211,8 @@ def _apply_language_migration(profile: dict[str, object]) -> None:
             profile["notes_language"] = legacy
         else:
             profile["notes_language"] = "ru"
+    if "probe_mode" not in profile:
+        profile["probe_mode"] = "on"
 
 
 def get_ui_language(profile: dict[str, object]) -> str:
@@ -218,6 +223,21 @@ def get_ui_language(profile: dict[str, object]) -> str:
 def get_notes_language(profile: dict[str, object]) -> str:
     val = profile.get("notes_language")
     return val if isinstance(val, str) and val in ("ru", "en", "uz") else "ru"
+
+
+def get_probe_mode(profile: dict[str, object]) -> bool:
+    """Returns True when the bot should probe by default (explore mode).
+
+    Toggled by the user via the "🧠 Копаем / 📝 Записываем" reply-keyboard
+    button. Default is True — matches user's stated preference that the bot
+    is "копательный" out of the box; capture-only is the opt-in.
+
+    Anything other than the literal "off" string is treated as on (defensive:
+    a missing field, a None, a garbled migration — worst case is the bot
+    asks a question, which is recoverable; silent capture-only on a real
+    user who wants engagement is not).
+    """
+    return profile.get("probe_mode") != "off"
 
 
 async def scan_idle(redis: Redis, timeout_min: int) -> list[tuple[int, ActiveSession]]:

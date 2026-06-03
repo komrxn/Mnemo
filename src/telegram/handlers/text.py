@@ -552,10 +552,17 @@ async def _finalize_onboarding(user_id: int = 0, ui_lang: str = "ru") -> None:
         from src.telegram.bot import get_bot
         from src.telegram.keyboards import main_reply_keyboard
 
+        # Fetch probe_mode so the right toggle label renders for the user.
+        # Fresh post-onboarding profile will have the default "on" from the
+        # migration in session_mgr — keyboard shows "🧠 Копаем".
+        redis = await session_mgr.get_redis()
+        profile = await session_mgr.get_profile(redis, user_id)
         await get_bot().send_message(
             user_id,
             t("kb.activated", ui_lang),
-            reply_markup=main_reply_keyboard(ui_lang),
+            reply_markup=main_reply_keyboard(
+                ui_lang, session_mgr.get_probe_mode(profile)
+            ),
         )
     except Exception as exc:
         logger.warning("reveal main keyboard failed", user_id=user_id, error=str(exc))
@@ -1287,11 +1294,17 @@ async def process_input(
 
     bot_name = str(profile.get("bot_name", "Mnemo"))
     personality = str(profile.get("personality", ""))
+    probe_on = session_mgr.get_probe_mode(profile)
     # Agent SPEAKS in ui_language. Notes are still written in notes_language —
     # the lang_instruction block below pins canonical_name/aliases/body to
-    # notes_lang regardless of dialog language.
+    # notes_lang regardless of dialog language. probe_on drives the Capture
+    # vs Explore default in system.md — user toggles it via the keyboard.
     system_prompt = prompts.render(
-        "system", lang=ui_lang, bot_name=bot_name, personality=personality
+        "system",
+        lang=ui_lang,
+        bot_name=bot_name,
+        personality=personality,
+        probe_on=probe_on,
     )
     # Dialog language directive: pins the bot's REPLY language even when
     # the conversation history is in a different language (e.g. after /lang
@@ -1431,6 +1444,33 @@ async def handle_text(message: Message) -> None:
     if button_cmd is not None:
         from src.telegram.handlers.commands import cmd_start
         from src.telegram.handlers.settings import cmd_settings
+        from src.telegram.keyboards import main_reply_keyboard
+
+        # Probe-mode toggle: flip the persisted preference, then re-send the
+        # main keyboard so the label reflects the new state (Telegram reply
+        # keyboards don't update unless we replace them). The toast tells
+        # the user which mode they're now in.
+        if button_cmd == "toggle_probe":
+            redis = await session_mgr.get_redis()
+            profile = await session_mgr.get_profile(redis, message.from_user.id)
+            ui_lang = session_mgr.get_ui_language(profile)
+            new_state = "off" if session_mgr.get_probe_mode(profile) else "on"
+            await session_mgr.update_profile(
+                redis, message.from_user.id, {"probe_mode": new_state}
+            )
+            toast_key = (
+                "kb.probe_enabled_toast" if new_state == "on" else "kb.probe_disabled_toast"
+            )
+            await message.answer(
+                t(toast_key, ui_lang),
+                reply_markup=main_reply_keyboard(ui_lang, new_state == "on"),
+            )
+            logger.info(
+                "probe mode toggled",
+                user_id=message.from_user.id,
+                new_state=new_state,
+            )
+            return
 
         # Destructive buttons (save / undo) go through a two-step inline
         # confirm — accidental taps shouldn't blow away a session or rewind

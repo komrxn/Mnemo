@@ -229,6 +229,10 @@ kb:
   settings: ⚙️ Sozlamalar
   undo: ⚠️ Bekor qil
   start: 🆕 Qaytadan
+  probe_on: 🧠 Chuqurroq
+  probe_off: 📝 Faqat yozish
+  probe_enabled_toast: '🧠 Chuqurroq rejim yoqildi — mavzuni ochuvchi savollar beraman.'
+  probe_disabled_toast: '📝 Yaxshi, faqat yozaman. Muhokama qilishni xohlasang — «🧠 Chuqurroq» tugmasini bos yoki shunchaki ayt.'
   placeholder: "Biror narsa ayt…"
   activated: '✨ Tayyor. Tugmalar pastda 👇'
   confirm_save: |-
